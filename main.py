@@ -147,7 +147,7 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
     x_postprocess = data_processor.postprocess(x, decoding_end=metadata_dict['decoding_end'], metadata_dict=metadata_dict)
     x_inpainted, generated_region, done = decoder_handler.inpaint(
         x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
-    
+
 
     # Saving
     timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')

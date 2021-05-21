@@ -21,6 +21,7 @@ class PositionalEmbedding(nn.Module):
     - SinusoidalEmbedding
     - etc.
     """
+
     def __init__(self, base_positional_embedding_list) -> None:
         super().__init__()
         self.base_positional_embeddings = nn.ModuleList(
@@ -40,7 +41,7 @@ class PositionalEmbedding(nn.Module):
             h (list of tensors, optional): cached values, one for each embedding. Defaults to None.
             target (batch_size, num_events_num_channels, optional):
             The target tensor (not embedded), can be used compute some quantities. Defaults to None.
-            
+
         Output:
             x_embed_with
         """
@@ -50,14 +51,14 @@ class PositionalEmbedding(nn.Module):
             if h is None:
                 h = [None] * len(
                     self.base_positional_embeddings
-                    )
-                
+                )
+
         new_h_list = []
         for positional_embedding, h_pe in zip(self.base_positional_embeddings, h):
             x_embed, new_h_pe = positional_embedding.forward(x_embed,
-                                                   i=i,
-                                                   h=h_pe,
-                                                   metadata_dict=metadata_dict)
+                                                             i=i,
+                                                             h=h_pe,
+                                                             metadata_dict=metadata_dict)
             new_h_list.append(new_h_pe)
         return x_embed, new_h_list
 
@@ -78,14 +79,13 @@ class PositionalEmbedding(nn.Module):
             if h is None:
                 h = [None] * len(
                     self.base_positional_embeddings
-                    )
-                
-                
+                )
+
         new_h_list = []
         for positional_embedding, h_pe in zip(self.base_positional_embeddings, h):
             x_embed, new_h_pe = positional_embedding.forward_step(x_embed,
-                                                   i=i,
-                                                   h=h_pe,
-                                                   metadata_dict=metadata_dict)
+                                                                  i=i,
+                                                                  h=h_pe,
+                                                                  metadata_dict=metadata_dict)
             new_h_list.append(new_h_pe)
         return x_embed, new_h_list

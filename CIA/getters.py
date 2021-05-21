@@ -1,10 +1,11 @@
+from CIA.models.performer import CausalPerformer
+from CIA.dataloaders import BachDataloaderGenerator, PianoDataloaderGenerator
+from CIA.data_processors import BachDataProcessor, MaskedPianoSourceTargetDataProcessor, PianoDataProcessor, \
+    PianoPrefixDataProcessor, MaskedBachSourceTargetDataProcessor
 from CIA.dataloaders.nes_dataloader import NESDataloader
 from CIA.start_of_sequence_embeddings import SOSEmbedding, BaseSOSEmbedding, LearntSOSEmbedding
-from CIA.positional_embeddings import ChannelEmbeddings, BasePositionalEmbedding, PositionalEmbedding, SinusoidalElapsedTimeEmbedding, SinusoidalPositionalEmbedding, SinusoidalProgressBarEmbedding
-from CIA.data_processors import BachDataProcessor, MaskedPianoSourceTargetDataProcessor, PianoDataProcessor, PianoPrefixDataProcessor, MaskedBachSourceTargetDataProcessor
-from CIA.dataloaders import BachDataloaderGenerator, PianoDataloaderGenerator
-
-from CIA.models.performer import CausalPerformer
+from CIA.positional_embeddings import ChannelEmbeddings, BasePositionalEmbedding, PositionalEmbedding, \
+    SinusoidalElapsedTimeEmbedding, SinusoidalPositionalEmbedding, SinusoidalProgressBarEmbedding
 
 
 def get_dataloader_generator(dataset, dataloader_generator_kwargs):
@@ -16,7 +17,7 @@ def get_dataloader_generator(dataset, dataloader_generator_kwargs):
             sequences_size=dataloader_generator_kwargs['sequences_size'],
             transformations=dataloader_generator_kwargs['transformations'],
             pad_before=dataloader_generator_kwargs['pad_before']
-            )
+        )
     elif dataset.lower() == 'nes':
         return NESDataloader(
             sequences_size=dataloader_generator_kwargs['sequences_size'])
@@ -55,8 +56,8 @@ def get_data_processor(dataloader_generator, data_processor_type,
             len(value2index[feature])
             for feature in dataloader_generator.features
         ]
-        
-        data_processor = PianoPrefixDataProcessor(            
+
+        data_processor = PianoPrefixDataProcessor(
             dataloader_generator=dataloader_generator,
             embedding_size=data_processor_kwargs['embedding_size'],
             num_events=num_events,

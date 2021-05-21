@@ -27,24 +27,24 @@ class PianoPrefixDataProcessor(DataProcessor):
         # Start Of Decoding
         self.sod_symbols = nn.Parameter(torch.LongTensor(
             [nt + 1 for nt in num_tokens_per_channel]),
-                                        requires_grad=False)
+            requires_grad=False)
 
         self.end_tokens = nn.Parameter(torch.LongTensor([
             self.dataloader_generator.dataset.value2index[feature][END_SYMBOL]
             for feature in self.dataloader_generator.features
         ]),
-                                       requires_grad=False)
+            requires_grad=False)
         self.pad_tokens = nn.Parameter(torch.LongTensor([
             self.dataloader_generator.dataset.value2index[feature][PAD_SYMBOL]
             for feature in self.dataloader_generator.features
         ]),
-                                       requires_grad=False)
+            requires_grad=False)
 
         self.start_tokens = nn.Parameter(torch.LongTensor([
             self.dataloader_generator.dataset.value2index[feature]
             [START_SYMBOL] for feature in self.dataloader_generator.features
         ]),
-                                         requires_grad=False)
+            requires_grad=False)
 
     def preprocess(self, x):
         """[summary]
@@ -52,16 +52,16 @@ class PianoPrefixDataProcessor(DataProcessor):
         Args:
             x ([type]):
             decomposes as:
-            
+
             ======= ======= ======
             before  middle  after
-            
+
         Returns:
         Sequences of the form:
-        
-        ======= ============ ====== ==== ======= ==========      
+
+        ======= ============ ====== ==== ======= ==========
         before  placeholder  after  SOD  middle  END XX XX
-        
+
         """
         sequences_size = self.dataloader_generator.sequences_size
         batch_size, num_events, _ = x.size()
@@ -70,9 +70,7 @@ class PianoPrefixDataProcessor(DataProcessor):
 
         x = cuda_variable(x.long())
 
-        num_events_middle = random.randint(
-            1, sequences_size - self.num_events_before -
-            self.num_events_after - 3 - 1)
+        num_events_middle = random.randint(1, sequences_size - self.num_events_before - self.num_events_after - 3 - 1)
 
         # we will be adding these at the end of the sequence
         # the 3 accounts for the placeholder, the SOD and END tokens
@@ -81,8 +79,7 @@ class PianoPrefixDataProcessor(DataProcessor):
                                                  self.num_events_after) - 3
 
         # Slice x
-        x = x[:, :self.num_events_before + num_events_middle +
-              self.num_events_after]
+        x = x[:, :self.num_events_before + num_events_middle + self.num_events_after]
         batch_size, num_events, _ = x.size()
 
         # === Find end tokens in x
@@ -115,13 +112,11 @@ class PianoPrefixDataProcessor(DataProcessor):
                   num_events_middle:self.num_events_before +
                   num_events_middle + self.num_events_after]
 
-        placeholder_duration = self.dataloader_generator.get_elapsed_time(
-            middle)[:, -1]
+        placeholder_duration = self.dataloader_generator.get_elapsed_time(middle)[:, -1]
 
         # === Compute Placeholder
         placeholder, placeholder_duration_token = self.compute_placeholder(placeholder_duration=placeholder_duration,
-                                               batch_size=batch_size)
-
+                                                                           batch_size=batch_size)
 
         new_before_list, new_middle_list, new_after_list = [], [], []
 
@@ -182,7 +177,7 @@ class PianoPrefixDataProcessor(DataProcessor):
                     self.end_tokens.unsqueeze(0),
                     self.pad_tokens.unsqueeze(0).repeat(m.size(0), 1)
                 ],
-                                       dim=0)
+                    dim=0)
 
                 # Trim pad symbols, and PAD
                 # no END!
@@ -210,7 +205,7 @@ class PianoPrefixDataProcessor(DataProcessor):
                     self.end_tokens.unsqueeze(0),
                     self.pad_tokens.unsqueeze(0).repeat(m.size(0), 1)
                 ],
-                                       dim=0)
+                    dim=0)
                 # after is untouched
                 new_after = a
                 # before is untouched
@@ -234,7 +229,7 @@ class PianoPrefixDataProcessor(DataProcessor):
                     m,
                     pad_or_end_tokens.unsqueeze(0),
                 ],
-                                       dim=0)
+                    dim=0)
                 new_after = a
                 new_before = b
 
@@ -255,7 +250,7 @@ class PianoPrefixDataProcessor(DataProcessor):
             self.pad_tokens.unsqueeze(0).unsqueeze(0).repeat(
                 batch_size, remainder_num_events, 1)
         ],
-                      dim=1)
+            dim=1)
 
         _, num_events_output, _ = y.size()
         # recompute padding mask
@@ -273,15 +268,16 @@ class PianoPrefixDataProcessor(DataProcessor):
         final_mask = padding_mask + sod_mask + start_mask
         # add placeholder: it is added at num_events_before position
         final_mask[:, self.num_events_before, :] = True
-        
+
         # compute decoding_end
         is_end_token_new_middle = (
             new_middle[:, :, 0] == self.end_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
                 batch_size, new_middle.size(1)))
         # Only valid when containes_end_token!!
-        end_token_location_new_middle = torch.argmax(is_end_token_new_middle.long(), dim=1)
-        decoding_end = self.num_events_before + self.num_events_after + 2 + end_token_location_new_middle
-        
+        end_token_location_new_middle = torch.argmax(
+            is_end_token_new_middle.long(), dim=1)
+        decoding_end = self.num_events_before + \
+            self.num_events_after + 2 + end_token_location_new_middle
 
         # self.num_events_before + self.num_events_after + 1 is the location
         # of the SOD symbol (only the placeholder is added)
@@ -311,16 +307,16 @@ class PianoPrefixDataProcessor(DataProcessor):
                     self.dataloader_generator.get_feature_index(
                         'time_shift')] = placeholder_duration_token
         return placeholder, placeholder_duration_token
-    
+
     def postprocess(self, x, decoding_end, metadata_dict):
         decoding_start = metadata_dict['decoding_start']
         # put all pieces in order:
         x = torch.cat(
             [
-            x[:, :self.num_events_before],
-            x[:, decoding_start: decoding_end],
-            x[:, self.num_events_before + 1: self.num_events_before + 1 + self.num_events_after]
-            ]
-            , dim=1
+                x[:, :self.num_events_before],
+                x[:, decoding_start: decoding_end],
+                x[:, self.num_events_before +
+                    1: self.num_events_before + 1 + self.num_events_after]
+            ], dim=1
         )
         return x
