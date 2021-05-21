@@ -28,6 +28,7 @@ class SinusoidalElapsedTimeEmbedding(BasePositionalEmbedding):
         assert 'original_sequence' in metadata_dict, (
             'Dictionnary metadata_dict must contain entry "original_sequence" in order to compute the elapsed time'
         )
+        # Original sequence is in prefix order!
         x = metadata_dict['original_sequence']
         batch_size, num_events, num_channels = x.size()
 

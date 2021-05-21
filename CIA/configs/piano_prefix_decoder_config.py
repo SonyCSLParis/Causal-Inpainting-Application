@@ -44,17 +44,17 @@ config = {
         sinusoidal_progress_bar_embedding=dict(
             positional_embedding_size=128,
             num_channels=4,
-            dropout=0.,            
+            dropout=0.,
         )
     ),
-    
+
     # --- Start Of Sequence embeddings
     'sos_embedding_dict': dict(
         learnt_sos_embedding=dict(
             embedding_size=512 # sum must be equal to d_model_decoder
         )
     ),
-        
+
     # --- Decoder ---
     'decoder_type':                'performer',
     'decoder_kwargs':              dict(

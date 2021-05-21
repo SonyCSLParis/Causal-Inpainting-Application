@@ -273,7 +273,7 @@ class PianoPrefixDataProcessor(DataProcessor):
         is_end_token_new_middle = (
             new_middle[:, :, 0] == self.end_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
                 batch_size, new_middle.size(1)))
-        # Only valid when containes_end_token!!
+        # only valid when containes_end_token!!
         end_token_location_new_middle = torch.argmax(
             is_end_token_new_middle.long(), dim=1)
         decoding_end = self.num_events_before + \
