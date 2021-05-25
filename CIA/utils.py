@@ -87,31 +87,31 @@ def categorical_crossentropy(value, target, mask=None, label_smoothing=False):
     """
     cross_entropy = nn.CrossEntropyLoss(size_average=False, reduce=False)
     sum = 0
-    
+
     for channel_probs, target_channel, mask_channel in zip(
             value, target.split(1, dim=2), mask.split(1, dim=2)):
         # select relevent indices
         batch_size, num_events, num_tokens_of_channel = channel_probs.size()
-        
+
         probs = channel_probs[mask_channel.bool().repeat(
             1, 1, num_tokens_of_channel)]
         target = target_channel[mask_channel.bool()]
 
         probs = probs.view(-1, num_tokens_of_channel)
         tgt = target.view(-1)
-        
+
         if not label_smoothing:
             ce = cross_entropy(probs, tgt)
         else:
             eps = 0.02
             one_hot = torch.zeros_like(probs).scatter(1, tgt.view(-1, 1), 1)
-            one_hot = (one_hot * (1 - eps) + 
+            one_hot = (one_hot * (1 - eps) +
                        (1 - one_hot) * eps / (num_tokens_of_channel - 1)
             )
             log_prb = nn.functional.log_softmax(probs, dim=1)
             ce = -(one_hot * log_prb).sum(dim=1)
         sum = sum + ce.sum()
-        
+
     # divide by the total number of tokens
     if mask.sum() > 0:
         sum = sum / mask.sum()
@@ -299,8 +299,8 @@ def top_k_top_p_filtering(logits,
             top_p >0.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
                 Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
     """
-    assert logits.dim(
-    ) == 1  # batch size 1 for now - could be updated for more but the code would be less clear
+    # batch size 1 for now - could be updated for more but the code would be less clear
+    assert logits.dim() == 1
     top_k = min(top_k, logits.size(-1))  # Safety check
     if top_k > 0:
         # Remove all tokens with a probability less than the last token of the top-k

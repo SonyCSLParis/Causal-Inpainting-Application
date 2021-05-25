@@ -311,7 +311,7 @@ class PianoPrefixDataProcessor(DataProcessor):
     def postprocess(self, x, decoding_end, metadata_dict):
         decoding_start = metadata_dict['decoding_start']
         # put all pieces in order:
-        x = torch.cat(
+        x_out = torch.cat(
             [
                 x[:, :self.num_events_before],
                 x[:, decoding_start: decoding_end],
@@ -319,4 +319,4 @@ class PianoPrefixDataProcessor(DataProcessor):
                     1: self.num_events_before + 1 + self.num_events_after]
             ], dim=1
         )
-        return x
+        return x_out

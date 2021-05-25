@@ -33,7 +33,7 @@ class PianoDataloaderGenerator(DataloaderGenerator):
             different_time_table_ts_duration=not legacy,
             pad_before=pad_before
         )
-        
+
         super(PianoDataloaderGenerator, self).__init__(dataset=dataset)
         self.features = ['pitch', 'velocity', 'duration', 'time_shift']
         self.num_channels = 4
@@ -41,7 +41,7 @@ class PianoDataloaderGenerator(DataloaderGenerator):
     @property
     def sequences_size(self):
         return self.dataset.sequence_size
-    
+
     def dataloaders(self, batch_size, num_workers=0, shuffle_train=True,
                     shuffle_val=False):
         dataloaders = self.dataset.data_loaders(batch_size,
@@ -76,7 +76,7 @@ class PianoDataloaderGenerator(DataloaderGenerator):
         score = self.dataset.tensor_to_score(sequences, fill_features=None)
         score.write(f'{path}.mid')
         print(f'File {path}.mid written')
-    
+
     def get_elapsed_time(self, x):
         """
         This function only returns the aggregated sum,
@@ -84,7 +84,7 @@ class PianoDataloaderGenerator(DataloaderGenerator):
         x is (batch_size, num_events, num_channels)
         """
         assert 'time_shift' in self.features
-        
+
         timeshift_indices = x[:, :, self.features.index('time_shift')]
         # convert timeshift indices to their actual duration:
         y = self.dataset.timeshift_indices_to_elapsed_time(
@@ -92,7 +92,7 @@ class PianoDataloaderGenerator(DataloaderGenerator):
             smallest_time_shift=0.02
         )
         return y.cumsum(dim=-1)
-    
+
     def get_feature_index(self, feature_name):
         return self.features.index(feature_name)
-        
+

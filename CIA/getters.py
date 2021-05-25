@@ -1,4 +1,7 @@
-from CIA.models.performer import CausalPerformer
+from torch import nn
+from CIA.models.performer import PerformerStandard
+from CIA.models.elapsed_performer import ElapsedPerformer
+from CIA.models.causal_model import CausalModel
 from CIA.dataloaders import BachDataloaderGenerator, PianoDataloaderGenerator
 from CIA.data_processors import BachDataProcessor, MaskedPianoSourceTargetDataProcessor, PianoDataProcessor, \
     PianoPrefixDataProcessor, MaskedBachSourceTargetDataProcessor
@@ -139,23 +142,85 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
                 sos_embedding, decoder_type, decoder_kwargs, training_phase):
     num_channels_decoder = data_processor.num_channels
     num_events_decoder = data_processor.num_events
+    num_tokens_target = data_processor.num_tokens
 
     if decoder_type == 'performer':
-        decoder = CausalPerformer(
-            data_processor=data_processor,
-            dataloader_generator=dataloader_generator,
-            positional_embedding=positional_embedding,
-            sos_embedding=sos_embedding,
-            d_model=decoder_kwargs['d_model'],
-            num_decoder_layers=decoder_kwargs['num_decoder_layers'],
-            n_head=decoder_kwargs['n_head'],
-            num_channels_decoder=num_channels_decoder,
-            dropout=decoder_kwargs['dropout'],
-            num_events_decoder=num_events_decoder,
-            label_smoothing=decoder_kwargs['label_smoothing'],
-            nb_features=decoder_kwargs['nb_features'])
+        transformer = PerformerStandard(
+            # size of token dict (in our case we need an extra softmax)
+            num_tokens=decoder_kwargs['d_model'],
+            max_seq_len=num_tokens_target,    # max sequence length
+            dim=decoder_kwargs['d_model'],                  # dimension
+            depth=decoder_kwargs['num_decoder_layers'],     # layers
+            heads=decoder_kwargs['n_head'],                 # heads
+            causal=True,                  # auto-regressive or not
+            # number of random features, if not set, will default to (d * log(d)), where d is the dimension of each head
+            nb_features=decoder_kwargs['nb_features'],
+            # how frequently to redraw the projection matrix, the more frequent, the slower the training
+            feature_redraw_interval=1000,
+            # defaults to softmax approximation, but can be set to True for generalized attention
+            generalized_attention=False,
+            # the kernel function to be used, if generalized attention is turned on, defaults to Relu
+            kernel_fn=nn.ReLU(),
+            reversible=True,              # reversible layers, from Reformer paper
+            ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
+            use_scalenorm=False,          # use scale norm, from 'Transformers without Tears' paper
+            use_rezero=False,             # use rezero, from 'Rezero is all you need' paper
+            # multiply final embeddings with token weights for logits, like gpt decoder
+            tie_embed=False,
+            ff_glu=True,                  # use GLU variant for feedforward
+            emb_dropout=decoder_kwargs['dropout'],          # embedding dropout
+            ff_dropout=decoder_kwargs['dropout'],           # feedforward dropout
+            attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
+            # 4 heads are local attention, 4 others are global performers
+            local_attn_heads=4,
+            local_window_size=256,        # window size of local attention
+            rotary_position_emb=True      # use rotary positional embedding, which endows linear attention with relative positional encoding with no learned parameters. should always be turned on unless if you want to go back to old absolute positional encoding
+        )
+    elif decoder_type == 'elapsed_transformer':
+        transformer = ElapsedPerformer(
+            # size of token dict (in our case we need an extra softmax)
+            num_tokens=decoder_kwargs['d_model'],
+            max_seq_len=num_tokens_target,    # max sequence length
+            dim=decoder_kwargs['d_model'],                  # dimension
+            depth=decoder_kwargs['num_decoder_layers'],     # layers
+            heads=decoder_kwargs['n_head'],                 # heads
+            causal=True,                  # auto-regressive or not
+            # number of random features, if not set, will default to (d * log(d)), where d is the dimension of each head
+            nb_features=decoder_kwargs['nb_features'],
+            # how frequently to redraw the projection matrix, the more frequent, the slower the training
+            feature_redraw_interval=1000,
+            # defaults to softmax approximation, but can be set to True for generalized attention
+            generalized_attention=False,
+            # the kernel function to be used, if generalized attention is turned on, defaults to Relu
+            kernel_fn=nn.ReLU(),
+            reversible=True,              # reversible layers, from Reformer paper
+            ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
+            use_scalenorm=False,          # use scale norm, from 'Transformers without Tears' paper
+            use_rezero=False,             # use rezero, from 'Rezero is all you need' paper
+            # multiply final embeddings with token weights for logits, like gpt decoder
+            tie_embed=False,
+            ff_glu=True,                  # use GLU variant for feedforward
+            emb_dropout=decoder_kwargs['dropout'],          # embedding dropout
+            ff_dropout=decoder_kwargs['dropout'],           # feedforward dropout
+            attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
+            # 4 heads are local attention, 4 others are global performers
+            local_attn_heads=4,
+            local_window_size=256,        # window size of local attention
+            rotary_position_emb=True      # use rotary positional embedding, which endows linear attention with relative positional encoding with no learned parameters. should always be turned on unless if you want to go back to old absolute positional encoding
+        )
     else:
         raise NotImplementedError
+
+    decoder = CausalModel(
+        data_processor=data_processor,
+        dataloader_generator=dataloader_generator,
+        positional_embedding=positional_embedding,
+        sos_embedding=sos_embedding,
+        d_model=decoder_kwargs['d_model'],
+        num_channels_decoder=num_channels_decoder,
+        num_events_decoder=num_events_decoder,
+        label_smoothing=decoder_kwargs['label_smoothing'],
+        transformer=transformer)
 
     return decoder
 

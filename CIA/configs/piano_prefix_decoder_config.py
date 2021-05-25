@@ -26,7 +26,7 @@ config = {
     # --- Positional Embedding ---
     'positional_embedding_dict': dict(
         # Est-ce qu'on laisse les sinusoidal absolute ? Peut servir pour savoir début/fin ? ou les progress bar seulement alos ?
-        sinusoidal_embedding= dict(
+        sinusoidal_embedding=dict(
             positional_embedding_size=128,
             num_channels=4,
             dropout=0.
@@ -51,7 +51,7 @@ config = {
     # --- Start Of Sequence embeddings
     'sos_embedding_dict': dict(
         learnt_sos_embedding=dict(
-            embedding_size=512 # sum must be equal to d_model_decoder
+            embedding_size=512  # sum must be equal to d_model_decoder
         )
     ),
 

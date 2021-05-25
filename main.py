@@ -73,8 +73,8 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
     # === Init process group
     os.environ['MASTER_ADDR'] = 'localhost'
     # os.environ['MASTER_PORT'] = '12355'
-    os.environ['MASTER_PORT'] = '12356'
-    # os.environ['MASTER_PORT'] = '12357'
+    # os.environ['MASTER_PORT'] = '12356'
+    os.environ['MASTER_PORT'] = '12357'
     # os.environ['MASTER_PORT'] = '12358'
     dist.init_process_group(backend='nccl', world_size=world_size, rank=rank)
     torch.cuda.set_device(rank)
@@ -137,17 +137,15 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
         )
         exit()
 
-    (generator_train, generator_val,
-     _) = dataloader_generator.dataloaders(batch_size=1,
-                                           num_workers=num_workers,
-                                           shuffle_val=True)
+    (_, generator_val, _) = dataloader_generator.dataloaders(batch_size=1,
+                                                             num_workers=num_workers,
+                                                             shuffle_val=True)
     original_x = next(generator_val)['x']
-    # original_x = next(generator_train)['x']
     x, metadata_dict = data_processor.preprocess(original_x)
-    x_postprocess = data_processor.postprocess(x, decoding_end=metadata_dict['decoding_end'], metadata_dict=metadata_dict)
-    x_inpainted, generated_region, done = decoder_handler.inpaint(
+    x_postprocess = data_processor.postprocess(
+        x, decoding_end=metadata_dict['decoding_end'], metadata_dict=metadata_dict)
+    x_inpainted, generated_region, done = decoder_handler.inpaint_non_optimized(
         x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
-
 
     # Saving
     timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')

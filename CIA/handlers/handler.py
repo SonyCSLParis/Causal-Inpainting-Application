@@ -23,17 +23,6 @@ class Handler:
         self.optimizer = None
         self.scheduler = None
 
-    #     self.init_weights()
-
-    # def init_weights(self):
-    #     for name, param in self.model.named_parameters():
-    #         if name.split('.')[-1] == 'weight':
-    #             if ('embed' not in name) and ('norm' not in name) and ('gating' not in name):
-    #                 torch.nn.init.kaiming_normal_(param, nonlinearity='relu')
-    #                 param.data = param.data * 0.01
-
-
-
     def init_optimizers(self, lr=1e-3):
         # self.optimizer = torch.optim.Adam(list(self.parameters()), lr=lr)
         self.optimizer = torch.optim.AdamW(list(self.parameters()),
