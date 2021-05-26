@@ -23,7 +23,6 @@ class Performer_(nn.Module):
         dim,
         depth,
         heads,
-        dim_head=64,
         local_attn_heads=0,
         local_window_size=256,
         causal=False,
@@ -56,7 +55,7 @@ class Performer_(nn.Module):
         self.norm = nn.LayerNorm(dim)
         # self.to_out = nn.Linear(dim, num_tokens) if not tie_embed else None
 
-        self.performer = _Performer_(dim, depth, heads, dim_head, local_attn_heads, local_window_size, causal, ff_mult,
+        self.performer = _Performer_(dim, depth, heads, local_attn_heads, local_window_size, causal, ff_mult,
                                      nb_features, feature_redraw_interval, execute_type, ff_chunks,
                                      generalized_attention, kernel_fn, use_scalenorm, use_rezero, ff_glu, ff_dropout,
                                      attn_dropout, cross_attend, no_projection, auto_check_redraw,
@@ -82,11 +81,6 @@ class Performer_(nn.Module):
 
         return x
 
-        # if exists(self.to_out):
-        #     return self.to_out(x)
-
-        # return x @ self.token_emb.weight.t()
-
 
 class _Performer_(nn.Module):
     def __init__(
@@ -94,7 +88,6 @@ class _Performer_(nn.Module):
         dim,
         depth,
         heads,
-        dim_head,
         local_attn_heads=0,
         local_window_size=256,
         causal=False,
@@ -117,6 +110,7 @@ class _Performer_(nn.Module):
         attn_out_bias=True
     ):
         super().__init__()
+        dim_head = dim // heads
         layers = nn.ModuleList([])
         local_attn_heads = cast_tuple(local_attn_heads)
         local_attn_heads = local_attn_heads * \

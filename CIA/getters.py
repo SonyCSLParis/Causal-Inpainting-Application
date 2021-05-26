@@ -169,15 +169,15 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
             emb_dropout=decoder_kwargs['dropout'],          # embedding dropout
             ff_dropout=decoder_kwargs['dropout'],           # feedforward dropout
             attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
-            # 4 heads are local attention, 4 others are global performers
-            local_attn_heads=4,
+            local_attn_heads=decoder_kwargs['n_head']//2,
             local_window_size=256,        # window size of local attention
         )
 
+    dim_head = decoder_kwargs['d_model'] // decoder_kwargs['n_head']
     if decoder_type == 'performer':
-        layer_pos_emb = IndexPositionalEmbedding(dim=64, max_seq_len=max_seq_len)
+        layer_pos_emb = IndexPositionalEmbedding(dim=dim_head, max_seq_len=max_seq_len)
     elif decoder_type == 'elapsed_performer':
-        layer_pos_emb = ElapsedPositionalEmbedding(dim=64, dataloader_generator=dataloader_generator)
+        layer_pos_emb = ElapsedPositionalEmbedding(dim=dim_head, dataloader_generator=dataloader_generator)
     else:
         raise NotImplementedError
 
