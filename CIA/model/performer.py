@@ -19,7 +19,6 @@ class Performer_(nn.Module):
     def __init__(
         self,
         *,
-        num_tokens,
         max_seq_len,
         dim,
         depth,
@@ -55,7 +54,7 @@ class Performer_(nn.Module):
 
         self.dropout = nn.Dropout(emb_dropout)
         self.norm = nn.LayerNorm(dim)
-        self.to_out = nn.Linear(dim, num_tokens) if not tie_embed else None
+        # self.to_out = nn.Linear(dim, num_tokens) if not tie_embed else None
 
         self.performer = _Performer_(dim, depth, heads, dim_head, local_attn_heads, local_window_size, causal, ff_mult,
                                      nb_features, feature_redraw_interval, execute_type, ff_chunks,
@@ -81,10 +80,12 @@ class Performer_(nn.Module):
         # norm and to logits
         x = self.norm(x)
 
-        if exists(self.to_out):
-            return self.to_out(x)
+        return x
 
-        return x @ self.token_emb.weight.t()
+        # if exists(self.to_out):
+        #     return self.to_out(x)
+
+        # return x @ self.token_emb.weight.t()
 
 
 class _Performer_(nn.Module):

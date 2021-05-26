@@ -146,8 +146,6 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
     max_seq_len = data_processor.num_tokens
 
     transformer = Performer_(
-            # size of token dict (in our case we need an extra softmax)
-            num_tokens=decoder_kwargs['d_model'],
             max_seq_len=max_seq_len,    # max sequence length
             dim=decoder_kwargs['d_model'],                  # dimension
             depth=decoder_kwargs['num_decoder_layers'],     # layers
