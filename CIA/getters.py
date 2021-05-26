@@ -1,8 +1,8 @@
-from CIA.models.positional_embeddings.index_positional_embedding import IndexPositionalEmbedding
-from CIA.models.positional_embeddings.elapsed_positional_embedding import ElapsedPositionalEmbedding
+from CIA.model.positional_embeddings.index_positional_embedding import IndexPositionalEmbedding
+from CIA.model.positional_embeddings.elapsed_positional_embedding import ElapsedPositionalEmbedding
 from torch import nn
-from CIA.models.performer import Performer_
-from CIA.models.causal_model import CausalModel
+from CIA.model.performer import Performer_
+from CIA.model.causal_model import CausalModel
 from CIA.dataloaders import BachDataloaderGenerator, PianoDataloaderGenerator
 from CIA.data_processors import BachDataProcessor, MaskedPianoSourceTargetDataProcessor, PianoDataProcessor, \
     PianoPrefixDataProcessor, MaskedBachSourceTargetDataProcessor

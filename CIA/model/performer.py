@@ -1,5 +1,5 @@
-from CIA.models.gating_layers import GatedSequence_
-from CIA.models.attentions import CrossAttention_, SelfAttention_
+from CIA.model.gating_layers import GatedSequence_
+from CIA.model.attentions import CrossAttention_, SelfAttention_
 import torch.nn as nn
 from functools import partial
 
