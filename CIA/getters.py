@@ -161,7 +161,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
             generalized_attention=False,
             # the kernel function to be used, if generalized attention is turned on, defaults to Relu
             kernel_fn=nn.ReLU(),
-            reversible=True,              # reversible layers, from Reformer paper
+            execute_type='reversible',      # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
             ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
             use_scalenorm=False,          # use scale norm, from 'Transformers without Tears' paper
             use_rezero=False,             # use rezero, from 'Rezero is all you need' paper

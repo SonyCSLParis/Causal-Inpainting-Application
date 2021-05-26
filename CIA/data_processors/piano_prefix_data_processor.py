@@ -1,3 +1,4 @@
+import time
 from DatasetManager.piano.piano_helper import find_nearest_value
 from DatasetManager.piano.piano_midi_dataset import END_SYMBOL, PAD_SYMBOL, START_SYMBOL
 from .data_processor import DataProcessor
@@ -269,6 +270,7 @@ class PianoPrefixDataProcessor(DataProcessor):
         # add placeholder: it is added at num_events_before position
         final_mask[:, self.num_events_before, :] = True
 
+        decoding_start = self.num_events_before + self.num_events_after + 2
         # compute decoding_end
         is_end_token_new_middle = (
             new_middle[:, :, 0] == self.end_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
@@ -279,14 +281,33 @@ class PianoPrefixDataProcessor(DataProcessor):
         decoding_end = self.num_events_before + \
             self.num_events_after + 2 + end_token_location_new_middle
 
+        # # compute elasped_time in prefix order
+        # elapsed_time = self.dataloader_generator.get_elapsed_time(y)
+        # # add zeros
+        # elapsed_time = torch.cat(
+        #     [
+        #         torch.zeros_like(elapsed_time)[:, :1],
+        #         elapsed_time[:, :-1]
+        #     ],
+        #     dim=1
+        # )
+        # if elapsed_time.size(1) > decoding_start:
+        #     # we need to have an offset for the generated inpainted region
+        #     elapsed_time[:, decoding_start:] = (
+        #         elapsed_time[:, decoding_start:] -
+        #         elapsed_time[:, decoding_start].unsqueeze(1)
+        #     )
+        # # TODO scale?! only 10?!
+        # elapsed_time = elapsed_time * 100
+
         # self.num_events_before + self.num_events_after + 1 is the location
         # of the SOD symbol (only the placeholder is added)
         metadata_dict = {
             'placeholder_duration': placeholder_duration,
-            'decoding_start':
-            self.num_events_before + self.num_events_after + 2,
+            'decoding_start': decoding_start,
             'decoding_end': decoding_end,
             'original_sequence': y,
+            # 'elapsed_time': elapsed_time,
             'loss_mask': final_mask
         }
         return y, metadata_dict
