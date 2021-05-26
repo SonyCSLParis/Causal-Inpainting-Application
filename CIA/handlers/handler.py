@@ -114,7 +114,6 @@ class Handler:
             for k, v in monitored_quantities_val.items():
                 self.writer.add_scalar(f'{k}/val', v, epoch_id)
 
-
     def train_model(self,
                     batch_size,
                     num_batches=None,

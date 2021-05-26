@@ -1,6 +1,7 @@
+from CIA.models.positional_embeddings.index_positional_embedding import IndexPositionalEmbedding
+from CIA.models.positional_embeddings.elapsed_positional_embedding import ElapsedPositionalEmbedding
 from torch import nn
-from CIA.models.performer import PerformerStandard
-from CIA.models.elapsed_performer import ElapsedPerformer
+from CIA.models.performer import Performer_
 from CIA.models.causal_model import CausalModel
 from CIA.dataloaders import BachDataloaderGenerator, PianoDataloaderGenerator
 from CIA.data_processors import BachDataProcessor, MaskedPianoSourceTargetDataProcessor, PianoDataProcessor, \
@@ -142,72 +143,43 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
                 sos_embedding, decoder_type, decoder_kwargs, training_phase):
     num_channels_decoder = data_processor.num_channels
     num_events_decoder = data_processor.num_events
-    num_tokens_target = data_processor.num_tokens
+    max_seq_len = data_processor.num_tokens
+
+    transformer = Performer_(
+            # size of token dict (in our case we need an extra softmax)
+            num_tokens=decoder_kwargs['d_model'],
+            max_seq_len=max_seq_len,    # max sequence length
+            dim=decoder_kwargs['d_model'],                  # dimension
+            depth=decoder_kwargs['num_decoder_layers'],     # layers
+            heads=decoder_kwargs['n_head'],                 # heads
+            causal=True,                  # auto-regressive or not
+            # number of random features, if not set, will default to (d * log(d)), where d is the dimension of each head
+            nb_features=decoder_kwargs['nb_features'],
+            # how frequently to redraw the projection matrix, the more frequent, the slower the training
+            feature_redraw_interval=1000,
+            # defaults to softmax approximation, but can be set to True for generalized attention
+            generalized_attention=False,
+            # the kernel function to be used, if generalized attention is turned on, defaults to Relu
+            kernel_fn=nn.ReLU(),
+            reversible=True,              # reversible layers, from Reformer paper
+            ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
+            use_scalenorm=False,          # use scale norm, from 'Transformers without Tears' paper
+            use_rezero=False,             # use rezero, from 'Rezero is all you need' paper
+            # multiply final embeddings with token weights for logits, like gpt decoder
+            tie_embed=False,
+            ff_glu=True,                  # use GLU variant for feedforward
+            emb_dropout=decoder_kwargs['dropout'],          # embedding dropout
+            ff_dropout=decoder_kwargs['dropout'],           # feedforward dropout
+            attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
+            # 4 heads are local attention, 4 others are global performers
+            local_attn_heads=4,
+            local_window_size=256,        # window size of local attention
+        )
 
     if decoder_type == 'performer':
-        transformer = PerformerStandard(
-            # size of token dict (in our case we need an extra softmax)
-            num_tokens=decoder_kwargs['d_model'],
-            max_seq_len=num_tokens_target,    # max sequence length
-            dim=decoder_kwargs['d_model'],                  # dimension
-            depth=decoder_kwargs['num_decoder_layers'],     # layers
-            heads=decoder_kwargs['n_head'],                 # heads
-            causal=True,                  # auto-regressive or not
-            # number of random features, if not set, will default to (d * log(d)), where d is the dimension of each head
-            nb_features=decoder_kwargs['nb_features'],
-            # how frequently to redraw the projection matrix, the more frequent, the slower the training
-            feature_redraw_interval=1000,
-            # defaults to softmax approximation, but can be set to True for generalized attention
-            generalized_attention=False,
-            # the kernel function to be used, if generalized attention is turned on, defaults to Relu
-            kernel_fn=nn.ReLU(),
-            reversible=True,              # reversible layers, from Reformer paper
-            ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
-            use_scalenorm=False,          # use scale norm, from 'Transformers without Tears' paper
-            use_rezero=False,             # use rezero, from 'Rezero is all you need' paper
-            # multiply final embeddings with token weights for logits, like gpt decoder
-            tie_embed=False,
-            ff_glu=True,                  # use GLU variant for feedforward
-            emb_dropout=decoder_kwargs['dropout'],          # embedding dropout
-            ff_dropout=decoder_kwargs['dropout'],           # feedforward dropout
-            attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
-            # 4 heads are local attention, 4 others are global performers
-            local_attn_heads=4,
-            local_window_size=256,        # window size of local attention
-            rotary_position_emb=True      # use rotary positional embedding, which endows linear attention with relative positional encoding with no learned parameters. should always be turned on unless if you want to go back to old absolute positional encoding
-        )
-    elif decoder_type == 'elapsed_transformer':
-        transformer = ElapsedPerformer(
-            # size of token dict (in our case we need an extra softmax)
-            num_tokens=decoder_kwargs['d_model'],
-            max_seq_len=num_tokens_target,    # max sequence length
-            dim=decoder_kwargs['d_model'],                  # dimension
-            depth=decoder_kwargs['num_decoder_layers'],     # layers
-            heads=decoder_kwargs['n_head'],                 # heads
-            causal=True,                  # auto-regressive or not
-            # number of random features, if not set, will default to (d * log(d)), where d is the dimension of each head
-            nb_features=decoder_kwargs['nb_features'],
-            # how frequently to redraw the projection matrix, the more frequent, the slower the training
-            feature_redraw_interval=1000,
-            # defaults to softmax approximation, but can be set to True for generalized attention
-            generalized_attention=False,
-            # the kernel function to be used, if generalized attention is turned on, defaults to Relu
-            kernel_fn=nn.ReLU(),
-            reversible=True,              # reversible layers, from Reformer paper
-            ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
-            use_scalenorm=False,          # use scale norm, from 'Transformers without Tears' paper
-            use_rezero=False,             # use rezero, from 'Rezero is all you need' paper
-            # multiply final embeddings with token weights for logits, like gpt decoder
-            tie_embed=False,
-            ff_glu=True,                  # use GLU variant for feedforward
-            emb_dropout=decoder_kwargs['dropout'],          # embedding dropout
-            ff_dropout=decoder_kwargs['dropout'],           # feedforward dropout
-            attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
-            # 4 heads are local attention, 4 others are global performers
-            local_attn_heads=4,
-            local_window_size=256,        # window size of local attention
-            rotary_position_emb=True      # use rotary positional embedding, which endows linear attention with relative positional encoding with no learned parameters. should always be turned on unless if you want to go back to old absolute positional encoding
-        )
+        layer_pos_emb = IndexPositionalEmbedding(dim=64, max_seq_len=max_seq_len)
+    elif decoder_type == 'elapsed_performer':
+        layer_pos_emb = ElapsedPositionalEmbedding(dim=64, dataloader_generator=dataloader_generator)
     else:
         raise NotImplementedError
 
@@ -220,43 +192,8 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         num_channels_decoder=num_channels_decoder,
         num_events_decoder=num_events_decoder,
         label_smoothing=decoder_kwargs['label_smoothing'],
-        transformer=transformer)
-
-    return decoder
-
-
-def get_encoder_decoder(data_processor, dataloader_generator,
-                        positional_embedding_source,
-                        positional_embedding_target, sos_embedding,
-                        encoder_decoder_type, encoder_decoder_kwargs,
-                        training_phase):
-
-    if encoder_decoder_type == 'linear_transformer':
-        decoder = EncoderDecoder(
-            data_processor=data_processor,
-            dataloader_generator=dataloader_generator,
-            positional_embedding_target=positional_embedding_target,
-            positional_embedding_source=positional_embedding_source,
-            sos_embedding=sos_embedding,
-            d_model_encoder=encoder_decoder_kwargs['d_model_encoder'],
-            d_model_decoder=encoder_decoder_kwargs['d_model_decoder'],
-            num_layers_decoder=encoder_decoder_kwargs['num_layers_decoder'],
-            num_layers_encoder=encoder_decoder_kwargs['num_layers_encoder'],
-            n_head_encoder=encoder_decoder_kwargs['n_head_encoder'],
-            n_head_decoder=encoder_decoder_kwargs['n_head_decoder'],
-            dim_feedforward_encoder=encoder_decoder_kwargs[
-                'dim_feedforward_encoder'],
-            dim_feedforward_decoder=encoder_decoder_kwargs[
-                'dim_feedforward_decoder'],
-            dropout=encoder_decoder_kwargs['dropout'],
-            num_channels_target=data_processor.num_channels_target,
-            num_channels_source=data_processor.num_channels_source,
-            num_events_target=data_processor.num_events_target,
-            num_events_source=data_processor.num_events_source,
-            label_smoothing=encoder_decoder_kwargs['label_smoothing'],
-            recurrent=not training_phase)
-    else:
-        raise NotImplementedError
+        transformer=transformer,
+        layer_pos_emb=layer_pos_emb)
 
     return decoder
 
