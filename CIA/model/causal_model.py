@@ -61,15 +61,7 @@ class CausalModel(nn.Module):
     def __repr__(self) -> str:
         return 'CausalEncoder'
 
-    def forward(self, target, metadata_dict, h_pe_init=None):
-        """
-        :param target: sequence of tokens (batch_size, num_events, num_channels)
-        :return:
-        """
-        batch_size, _, _ = target.size()
-        target_embedded = self.data_processor.embed(target)
-        target_seq = flatten(target_embedded)
-
+    def prepare_sequence(self, target_seq, metadata_dict, h_pe_init):
         # add input positional embeddings
         target_seq, h_pe = self.positional_embedding(
             target_seq, i=0, h=h_pe_init, metadata_dict=metadata_dict)
@@ -99,6 +91,17 @@ class CausalModel(nn.Module):
                 ],
                 dim=1)
             layer_pos_emb = layer_pos_emb[:, :-1]
+        return target_seq, layer_pos_emb, h_pe
+
+    def forward(self, target, metadata_dict, h_pe_init=None):
+        """
+        :param target: sequence of tokens (batch_size, num_events, num_channels)
+        :return:
+        """
+        batch_size, _, _ = target.size()
+        target_embedded = self.data_processor.embed(target)
+        target_seq = flatten(target_embedded)
+        target_seq, layer_pos_emb, h_pe = self.prepare_sequence(target_seq, metadata_dict, h_pe_init)
 
         # forward pass
         output = self.transformer(target_seq, layer_pos_emb=layer_pos_emb)
@@ -186,25 +189,11 @@ class CausalModel(nn.Module):
         :param h_pe:
         :return:
         """
-        batch_size, _, _ = target.size()
         target_embedded = self.data_processor.embed(target)
         target_seq = flatten(target_embedded)
+        target_seq, layer_pos_emb, h_pe = self.prepare_sequence(target_seq, metadata_dict, h_pe)
 
-        # add positional embeddings
-        target_seq, h_pe = self.positional_embedding(
-            target_seq, i=0, h=h_pe, metadata_dict=metadata_dict)
-        target_seq = self.linear_target(target_seq)
-
-        # shift target_seq by one
-        dummy_input_target = self.sos_embedding(metadata_dict).unsqueeze(1)
-        target_seq = torch.cat(
-            [
-                dummy_input_target,
-                target_seq
-            ],
-            dim=1)
-        target_seq = target_seq[:, :-1]
-        output = self.transformer.forward(target_seq)[:, i, :]
+        output = self.transformer(target_seq, layer_pos_emb=layer_pos_emb)[:, i, :]
 
         channel_index_output = i % self.num_channels_target
 
