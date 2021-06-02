@@ -1,11 +1,11 @@
-from CIA.model.gating_layers import GatedSequence_
-from CIA.model.attentions import CrossAttention_, SelfAttention_
+from CIA.model.utils.gating_layers import GatedSequence_
+from CIA.model.utils.attentions import CrossAttention_, SelfAttention_
 import torch.nn as nn
 from functools import partial
 
 from performer_pytorch.reversible import ReversibleSequence, SequentialSequence
 from performer_pytorch.performer_pytorch import Chunk, FeedForward, PreLayerNorm, PreScaleNorm, ProjectionUpdater,\
-    ReZero, cast_tuple, exists
+    ReZero, cast_tuple
 
 """ TODO
 - code elapsed time encoddings

@@ -1,3 +1,4 @@
+
 from CIA.positional_embeddings import PositionalEmbedding
 from torch import nn
 from CIA.data_processors import DataProcessor
@@ -48,6 +49,7 @@ class CausalModel(nn.Module):
         self.sos_embedding = sos_embedding
 
         ######################################################
+        # self.transformer = AutoregressiveWrapper(transformer, ignore_index=ignore_index, pad_value=pad_value)
         self.transformer = transformer
         self.label_smoothing = label_smoothing
 
@@ -59,7 +61,7 @@ class CausalModel(nn.Module):
                                            )
 
     def __repr__(self) -> str:
-        return 'CausalEncoder'
+        return 'CausalPrefixDecoder'
 
     def prepare_sequence(self, target_seq, metadata_dict, h_pe_init):
         # add input positional embeddings
@@ -193,6 +195,7 @@ class CausalModel(nn.Module):
         target_seq = flatten(target_embedded)
         target_seq, layer_pos_emb, h_pe = self.prepare_sequence(target_seq, metadata_dict, h_pe)
 
+        # output = self.transformer.generate(seq_out_start, seq_len, context = encodings, **{**dec_kwargs, **kwargs})
         output = self.transformer(target_seq, layer_pos_emb=layer_pos_emb)[:, i, :]
 
         channel_index_output = i % self.num_channels_target

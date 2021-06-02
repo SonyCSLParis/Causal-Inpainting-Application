@@ -56,7 +56,7 @@ config = {
     ),
 
     # --- Decoder ---
-    'decoder_type':                'elapsed_performer',
+    'decoder_type':                'elapsed_mixedInf_performer',
     'decoder_kwargs':              dict(
         d_model=512,
         n_head=8,

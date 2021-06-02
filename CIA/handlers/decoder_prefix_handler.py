@@ -84,7 +84,7 @@ class DecoderPrefixHandler(Handler):
             # ==========================
             with torch.no_grad():
                 x = tensor_dict['x']
-                x, metadata_dict = self.data_processor.preprocess(x)
+                x, metadata_dict = self.data_processor.preprocess(x, num_events_middle=None)
 
             # ========Train decoder =============
             self.optimizer.zero_grad()
@@ -183,13 +183,5 @@ class DecoderPrefixHandler(Handler):
         else:
             done = True
 
-        print(f'Num events_generated: {decoding_end - decoding_start_event}')
-        # to score
-        x_inpainted = self.data_processor.postprocess(
-            x.cpu(),
-            decoding_end,
-            metadata_dict
-        )
-        generated_region = x[:, decoding_start_event:decoding_end]
-
-        return x_inpainted, generated_region, done
+        num_event_generated = decoding_end - decoding_start_event
+        return x.cpu(), decoding_end, num_event_generated, done

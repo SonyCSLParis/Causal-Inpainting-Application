@@ -1,7 +1,8 @@
-from CIA.model.positional_embeddings.index_positional_embedding import IndexPositionalEmbedding
-from CIA.model.positional_embeddings.elapsed_positional_embedding import ElapsedPositionalEmbedding
+from CIA.model.causal_mixedInference_model import CausalMixedInferenceModel
+from CIA.model.utils.positional_embeddings.index_positional_embedding import IndexPositionalEmbedding
+from CIA.model.utils.positional_embeddings.elapsed_positional_embedding import ElapsedPositionalEmbedding
 from torch import nn
-from CIA.model.performer import Performer_
+from CIA.model.utils.performer import Performer_
 from CIA.model.causal_model import CausalModel
 from CIA.dataloaders import BachDataloaderGenerator, PianoDataloaderGenerator
 from CIA.data_processors import BachDataProcessor, MaskedPianoSourceTargetDataProcessor, PianoDataProcessor, \
@@ -146,52 +147,69 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
     max_seq_len = data_processor.num_tokens
 
     transformer = Performer_(
-            max_seq_len=max_seq_len,    # max sequence length
-            dim=decoder_kwargs['d_model'],                  # dimension
-            depth=decoder_kwargs['num_decoder_layers'],     # layers
-            heads=decoder_kwargs['n_head'],                 # heads
-            causal=True,                  # auto-regressive or not
-            # number of random features, if not set, will default to (d * log(d)), where d is the dimension of each head
-            nb_features=decoder_kwargs['nb_features'],
-            # how frequently to redraw the projection matrix, the more frequent, the slower the training
-            feature_redraw_interval=1000,
-            # defaults to softmax approximation, but can be set to True for generalized attention
-            generalized_attention=False,
-            # the kernel function to be used, if generalized attention is turned on, defaults to Relu
-            kernel_fn=nn.ReLU(),
-            execute_type='reversible',      # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
-            ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
-            use_scalenorm=False,          # use scale norm, from 'Transformers without Tears' paper
-            use_rezero=False,             # use rezero, from 'Rezero is all you need' paper
-            # multiply final embeddings with token weights for logits, like gpt decoder
-            tie_embed=False,
-            ff_glu=True,                  # use GLU variant for feedforward
-            emb_dropout=decoder_kwargs['dropout'],          # embedding dropout
-            ff_dropout=decoder_kwargs['dropout'],           # feedforward dropout
-            attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
-            local_attn_heads=decoder_kwargs['n_head']//2,
-            local_window_size=256,        # window size of local attention
-        )
+        max_seq_len=max_seq_len,    # max sequence length
+        dim=decoder_kwargs['d_model'],                  # dimension
+        depth=decoder_kwargs['num_decoder_layers'],     # layers
+        heads=decoder_kwargs['n_head'],                 # heads
+        causal=True,                  # auto-regressive or not
+        # number of random features, if not set, will default to (d * log(d)), where d is the dimension of each head
+        nb_features=decoder_kwargs['nb_features'],
+        # how frequently to redraw the projection matrix, the more frequent, the slower the training
+        feature_redraw_interval=1000,
+        # defaults to softmax approximation, but can be set to True for generalized attention
+        generalized_attention=False,
+        # the kernel function to be used, if generalized attention is turned on, defaults to Relu
+        kernel_fn=nn.ReLU(),
+        # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
+        execute_type='reversible',
+        ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
+        use_scalenorm=False,          # use scale norm, from 'Transformers without Tears' paper
+        use_rezero=False,             # use rezero, from 'Rezero is all you need' paper
+        # multiply final embeddings with token weights for logits, like gpt decoder
+        tie_embed=False,
+        ff_glu=True,                  # use GLU variant for feedforward
+        emb_dropout=decoder_kwargs['dropout'],          # embedding dropout
+        # feedforward dropout
+        ff_dropout=decoder_kwargs['dropout'],
+        attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
+        local_attn_heads=decoder_kwargs['n_head']//2,
+        local_window_size=256,        # window size of local attention
+    )
 
     dim_head = decoder_kwargs['d_model'] // decoder_kwargs['n_head']
     if decoder_type == 'performer':
-        layer_pos_emb = IndexPositionalEmbedding(dim=dim_head, max_seq_len=max_seq_len)
-    elif decoder_type == 'elapsed_performer':
-        layer_pos_emb = ElapsedPositionalEmbedding(dim=dim_head, dataloader_generator=dataloader_generator)
+        layer_pos_emb = IndexPositionalEmbedding(
+            dim=dim_head, max_seq_len=max_seq_len)
+    elif decoder_type in ['elapsed_performer', 'elapsed_mixedInf_performer']:
+        layer_pos_emb = ElapsedPositionalEmbedding(
+            dim=dim_head, dataloader_generator=dataloader_generator)
     else:
         raise NotImplementedError
 
-    decoder = CausalModel(
-        data_processor=data_processor,
-        dataloader_generator=dataloader_generator,
-        positional_embedding=positional_embedding,
-        sos_embedding=sos_embedding,
-        d_model=decoder_kwargs['d_model'],
-        num_channels_decoder=num_channels_decoder,
-        num_events_decoder=num_events_decoder,
-        label_smoothing=decoder_kwargs['label_smoothing'],
-        transformer=transformer,
-        layer_pos_emb=layer_pos_emb)
+    if decoder_type in ['performer', 'elapsed_performer']:
+        decoder = CausalModel(
+            data_processor=data_processor,
+            dataloader_generator=dataloader_generator,
+            positional_embedding=positional_embedding,
+            sos_embedding=sos_embedding,
+            d_model=decoder_kwargs['d_model'],
+            num_channels_decoder=num_channels_decoder,
+            num_events_decoder=num_events_decoder,
+            label_smoothing=decoder_kwargs['label_smoothing'],
+            transformer=transformer,
+            layer_pos_emb=layer_pos_emb)
+    elif decoder_type == 'elapsed_mixedInf_performer':
+        decoder = CausalMixedInferenceModel(
+            data_processor=data_processor,
+            dataloader_generator=dataloader_generator,
+            positional_embedding=positional_embedding,
+            sos_embedding=sos_embedding,
+            d_model=decoder_kwargs['d_model'],
+            num_channels_decoder=num_channels_decoder,
+            num_events_decoder=num_events_decoder,
+            label_smoothing=decoder_kwargs['label_smoothing'],
+            transformer=transformer,
+            layer_pos_emb=layer_pos_emb)
 
     return decoder
 

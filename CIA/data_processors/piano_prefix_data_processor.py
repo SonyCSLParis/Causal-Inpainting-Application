@@ -46,7 +46,7 @@ class PianoPrefixDataProcessor(DataProcessor):
         ]),
             requires_grad=False)
 
-    def preprocess(self, x):
+    def preprocess(self, x, num_events_middle):
         """[summary]
 
         Args:
@@ -70,7 +70,13 @@ class PianoPrefixDataProcessor(DataProcessor):
 
         x = cuda_variable(x.long())
 
-        num_events_middle = random.randint(1, sequences_size - self.num_events_before - self.num_events_after - 3 - 1)
+        max_num_events_middle = sequences_size - \
+            self.num_events_before - self.num_events_after - 3 - 1
+        if num_events_middle is None:
+            num_events_middle = random.randint(1, max_num_events_middle)
+        else:
+            assert (num_events_middle > 1) and (num_events_middle < max_num_events_middle), \
+                'wrong number of events to be inpainted'
 
         # we will be adding these at the end of the sequence
         # the 3 accounts for the placeholder, the SOD and END tokens
@@ -79,7 +85,8 @@ class PianoPrefixDataProcessor(DataProcessor):
                                                  self.num_events_after) - 3
 
         # Slice x
-        x = x[:, :self.num_events_before + num_events_middle + self.num_events_after]
+        x = x[:, :self.num_events_before +
+              num_events_middle + self.num_events_after]
         batch_size, num_events, _ = x.size()
 
         # === Find end tokens in x
@@ -112,7 +119,8 @@ class PianoPrefixDataProcessor(DataProcessor):
                   num_events_middle:self.num_events_before +
                   num_events_middle + self.num_events_after]
 
-        placeholder_duration = self.dataloader_generator.get_elapsed_time(middle)[:, -1]
+        placeholder_duration = self.dataloader_generator.get_elapsed_time(middle)[
+            :, -1]
 
         # === Compute Placeholder
         placeholder, placeholder_duration_token = self.compute_placeholder(placeholder_duration=placeholder_duration,
