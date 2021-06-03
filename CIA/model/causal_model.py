@@ -49,7 +49,6 @@ class CausalModel(nn.Module):
         self.sos_embedding = sos_embedding
 
         ######################################################
-        # self.transformer = AutoregressiveWrapper(transformer, ignore_index=ignore_index, pad_value=pad_value)
         self.transformer = transformer
         self.label_smoothing = label_smoothing
 
@@ -71,7 +70,8 @@ class CausalModel(nn.Module):
 
         # compute layer positional embeddings
         if self.layer_pos_emb is not None:
-            layer_pos_emb = self.layer_pos_emb(x_embed=target_seq, i=0, h=h_pe_init, metadata_dict=metadata_dict)
+            layer_pos_emb = self.layer_pos_emb(
+                x_embed=target_seq, i=0, h=h_pe_init, metadata_dict=metadata_dict)
 
         # shift target_seq by one
         dummy_input_target = self.sos_embedding(metadata_dict).unsqueeze(1)
@@ -103,10 +103,12 @@ class CausalModel(nn.Module):
         batch_size, _, _ = target.size()
         target_embedded = self.data_processor.embed(target)
         target_seq = flatten(target_embedded)
-        target_seq, layer_pos_emb, h_pe = self.prepare_sequence(target_seq, metadata_dict, h_pe_init)
+        target_seq, layer_pos_emb, h_pe = self.prepare_sequence(
+            target_seq, metadata_dict, h_pe_init)
 
         # forward pass
-        output = self.transformer(target_seq, layer_pos_emb=layer_pos_emb)
+        out = self.transformer(target_seq, layer_pos_emb=layer_pos_emb, inferring_states=False)
+        output = out['x']
         output = output.view(batch_size,
                              -1,
                              self.num_channels_target,
@@ -193,10 +195,11 @@ class CausalModel(nn.Module):
         """
         target_embedded = self.data_processor.embed(target)
         target_seq = flatten(target_embedded)
-        target_seq, layer_pos_emb, h_pe = self.prepare_sequence(target_seq, metadata_dict, h_pe)
+        target_seq, layer_pos_emb, h_pe = self.prepare_sequence(
+            target_seq, metadata_dict, h_pe)
 
-        # output = self.transformer.generate(seq_out_start, seq_len, context = encodings, **{**dec_kwargs, **kwargs})
-        output = self.transformer(target_seq, layer_pos_emb=layer_pos_emb)[:, i, :]
+        out = self.transformer(target_seq, layer_pos_emb=layer_pos_emb, inferring_states=False)
+        output = out['x'][:, i, :]
 
         channel_index_output = i % self.num_channels_target
 
@@ -209,3 +212,15 @@ class CausalModel(nn.Module):
             'h_pe':    h_pe,
             'weights': weights,
         }
+
+    def infer_hidden_states(self, priming_seq, metadata_dict, decoding_start_event):
+        target_embedded = self.data_processor.embed(priming_seq)
+        target_seq = flatten(target_embedded)
+        target_seq, layer_pos_emb, h_pe = self.prepare_sequence(
+            target_seq, metadata_dict, h_pe_init=None)
+        out = self.transformer(
+            target_seq[:, :decoding_start_event], layer_pos_emb=layer_pos_emb[:, :decoding_start_event],
+            inferring_states=True)
+        # we still prepare logits, in case we want to use it for prediction
+        out['x'] = out['x'][:, -1]
+        return out

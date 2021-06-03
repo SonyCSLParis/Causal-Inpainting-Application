@@ -138,6 +138,9 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
         )
         exit()
 
+    # fix projection matrices before generating
+    decoder_handler.model.module.transformer.fix_projection_matrices_()
+
     exemple = dict(path='/home/leo/Data/databases/Piano/ecomp_piano_dataset/Abdelmola01.MID', num_events_middle=500,
                    start=0)
     # exemple = None
@@ -151,8 +154,7 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
             original_x, num_events_middle=None)
     else:
         # read midi file
-        x = dataloader_generator.dataset.process_score(
-            exemple['path'])
+        x = dataloader_generator.dataset.process_score(exemple['path'])
         # add pad, start and end symbols
         x = dataloader_generator.dataset.add_start_end_symbols(x,
                                                                start_time=exemple['start'],
@@ -170,11 +172,18 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
     x_postprocess = data_processor.postprocess(
         x, decoding_end=metadata_dict['decoding_end'], metadata_dict=metadata_dict)
 
+    ############################################################
     # inpainting
     start_time = time.time()
-    x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint_non_optimized(
+    x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint(
         x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
     end_time = time.time()
+    ############################################################
+    # start_time = time.time()
+    # x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint_non_optimized(
+    #     x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
+    # end_time = time.time()
+    ############################################################
     x_inpainted = data_processor.postprocess(
         x_gen,
         decoding_end,

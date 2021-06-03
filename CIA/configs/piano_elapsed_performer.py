@@ -68,7 +68,7 @@ config = {
     # ======== Training ========
     'lr':                          1e-4,
     'batch_size':                  2,
-    'num_batches':                 256,
+    'num_batches':                 2,
     'num_epochs':                  2000,
 
     # ======== model ID ========

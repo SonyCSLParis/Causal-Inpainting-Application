@@ -41,7 +41,6 @@ class Performer_(nn.Module):
         use_rezero=False,
         cross_attend=False,
         no_projection=False,
-        tie_embed=False,
         auto_check_redraw=True,
         qkv_bias=False,
         attn_out_bias=False
@@ -53,7 +52,6 @@ class Performer_(nn.Module):
 
         self.dropout = nn.Dropout(emb_dropout)
         self.norm = nn.LayerNorm(dim)
-        # self.to_out = nn.Linear(dim, num_tokens) if not tie_embed else None
 
         self.performer = _Performer_(dim, depth, heads, local_attn_heads, local_window_size, causal, ff_mult,
                                      nb_features, feature_redraw_interval, execute_type, ff_chunks,
@@ -71,15 +69,11 @@ class Performer_(nn.Module):
         b, n, d = x.shape
         assert n <= self.max_seq_len, f'sequence length {n} must be less than \
             the max sequence length {self.max_seq_len}'
-
         x = self.dropout(x)
-
-        x = self.performer(x, pos_emb=layer_pos_emb, **kwargs)
-
-        # norm and to logits
-        x = self.norm(x)
-
-        return x
+        out = self.performer(x, pos_emb=layer_pos_emb, **kwargs)
+        # pre-softmax norm (improve training stability)
+        out['x'] = self.norm(out['x'])
+        return out
 
 
 class _Performer_(nn.Module):
@@ -163,7 +157,7 @@ class _Performer_(nn.Module):
 
         route_attn = ((True, False),) * depth * (2 if cross_attend else 1)
         route_context = ((False, False), (True, False)) * depth
-        attn_route_map = {'mask': route_attn, 'pos_emb': route_attn}
+        attn_route_map = {'mask': route_attn, 'pos_emb': route_attn, 'inferring_states': route_attn}
         context_route_map = {'context': route_context,
                              'context_mask': route_context} if cross_attend else {}
         if execute_type_ == 'gated':
@@ -184,4 +178,5 @@ class _Performer_(nn.Module):
     def forward(self, x, **kwargs):
         if self.auto_check_redraw:
             self.proj_updater.redraw_projections()
-        return self.net(x, **kwargs)
+        x, Zs, Ss = self.net(x, **kwargs)
+        return dict(x=x, Zs=Zs, Ss=Ss)
