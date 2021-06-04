@@ -25,18 +25,17 @@ config = {
 
     # --- Positional Embedding ---
     'positional_embedding_dict': dict(
-        # Est-ce qu'on laisse les sinusoidal absolute ? Peut servir pour savoir début/fin ? ou les progress bar seulement alos ?
-        sinusoidal_embedding=dict(
-            positional_embedding_size=128,
-            num_channels=4,
-            dropout=0.
-        ),
-        sinusoidal_elapsed_time_embedding=dict(
-            positional_embedding_size=128,
-            num_channels=4,
-            dropout=0.,
-            mask_positions=False
-        ),
+        # sinusoidal_embedding=dict(
+        #     positional_embedding_size=128,
+        #     num_channels=4,
+        #     dropout=0.
+        # ),
+        # sinusoidal_elapsed_time_embedding=dict(
+        #     positional_embedding_size=128,
+        #     num_channels=4,
+        #     dropout=0.,
+        #     mask_positions=False
+        # ),
         channel_embedding=dict(
             positional_embedding_size=12,
             num_channels=4
@@ -67,8 +66,8 @@ config = {
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  2,
-    'num_batches':                 2,
+    'batch_size':                  4,
+    'num_batches':                 256,
     'num_epochs':                  2000,
 
     # ======== model ID ========

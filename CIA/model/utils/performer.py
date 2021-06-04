@@ -148,12 +148,15 @@ class _Performer_(nn.Module):
         execute_type_ = execute_type
         if execute_type == 'reversible':
             execute_type = ReversibleSequence_
-        elif execute_type == 'gated':
-            execute_type = GatedSequence_
-        elif execute_type == 'residual':
-            execute_type = SequentialSequence_
         else:
-            raise NotImplementedError
+            raise NotImplementedError("State and recurrent forward not implemented with gated and sequential models. \
+                Use Reversible for now, which anyway should be more efficient")
+        # elif execute_type == 'gated':
+        #     execute_type = GatedSequence_
+        # elif execute_type == 'residual':
+        #     execute_type = SequentialSequence_
+        # else:
+        #     raise NotImplementedError
 
         route_attn = ((True, False),) * depth * (2 if cross_attend else 1)
         route_context = ((False, False), (True, False)) * depth
