@@ -66,8 +66,6 @@ class DecoderPrefixHandler(Handler):
         else:
             self.eval()
 
-        h_pe_init = None
-
         iterator = enumerate(islice(data_loader, num_batches))
         if is_main_process():
             iterator = tqdm(iterator, ncols=80)
@@ -82,8 +80,7 @@ class DecoderPrefixHandler(Handler):
             # ========Train decoder =============
             self.optimizer.zero_grad()
             forward_pass = self.forward(target=x,
-                                        metadata_dict=metadata_dict,
-                                        h_pe_init=h_pe_init)
+                                        metadata_dict=metadata_dict)
             loss = forward_pass['loss']
             # h_pe_init = forward_pass['h_pe'].detach()
 
@@ -132,14 +129,12 @@ class DecoderPrefixHandler(Handler):
             # i corresponds to the position of the token BEING generated
             for event_index in range(decoding_start_event, num_events):
                 for channel_index in range(self.num_channels_target):
-                    i = event_index * self.num_channels_target + channel_index
+                    decoding_index = event_index * self.num_channels_target + channel_index
 
                     forward_pass = self.forward_step(
                         target=x,
                         metadata_dict=metadata_dict,
-                        state=None,
-                        i=i,
-                        h_pe=None)
+                        decoding_index=decoding_index)
                     weights = forward_pass['weights']
 
                     logits = weights / temperature
@@ -190,26 +185,27 @@ class DecoderPrefixHandler(Handler):
 
         decoding_end = None
         decoding_start_event = metadata_dict['decoding_start']
+        decoding_start_index = decoding_start_event * self.num_channels_target
         x[:, decoding_start_event:] = 0  # ensure we don't cheat!
 
         # get hidden states
-        out = self.model.module.infer_hidden_states(x, metadata_dict, decoding_start_event)
-        Zs_init = out['Zs']
-        Ss_init = out['Ss']
+        out = self.model.module.infer_hidden_states(x, metadata_dict, decoding_start_index)
+        states = dict(Zs=out['Zs'], Ss=out['Ss'])
 
         with torch.no_grad():
             # i corresponds to the position of the token BEING generated
             for event_index in range(decoding_start_event, num_events):
                 for channel_index in range(self.num_channels_target):
-                    i = event_index * self.num_channels_target + channel_index
-
-                    forward_pass = self.forward_step(
-                        target=x,
-                        metadata_dict=metadata_dict,
-                        state=None,
-                        i=i,
-                        h_pe=None)
-                    weights = forward_pass['weights']
+                    decoding_index = event_index * self.num_channels_target + channel_index
+                    if decoding_index == decoding_start_index:  # no need to recompute this one already inferred with states
+                        weights = out['weights']
+                    else:
+                        forward_pass = self.recurrent_step(
+                            target=x,
+                            metadata_dict=metadata_dict,
+                            states=states,
+                            decoding_index=decoding_index)
+                        weights = forward_pass['weights']
 
                     logits = weights / temperature
 

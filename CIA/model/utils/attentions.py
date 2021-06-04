@@ -57,12 +57,6 @@ class Attention_(nn.Module):
         context_mask = default(
             context_mask, mask) if not cross_attend else context_mask
 
-        # are we inferring states? (to initialize recursive generation)
-        if ('inferring_states' in kwargs) and kwargs['inferring_states']:
-            inferring_states = kwargs['inferring_states']
-        else:
-            inferring_states = None
-
         q, k, v = self.to_q(x), self.to_k(context), self.to_v(context)
 
         q, k, v = map(lambda t: rearrange(
@@ -81,7 +75,8 @@ class Attention_(nn.Module):
             if exists(pos_emb) and not cross_attend:
                 q, k = apply_rotary_pos_emb_(q, k, pos_emb)
 
-            out, state = self.fast_attention(q, k, v, inferring_states)
+            out, state = self.fast_attention(
+                q, k, v, kwargs['states'], kwargs['inferring_states'])
             attn_outs.append(out)
 
         if not empty(lq):
@@ -126,21 +121,6 @@ def apply_rotary_pos_emb_(q, k, sinu_pos):
     return q, k
 
 
-# inefficient causal linear attention, without cuda code,
-# (used for parallel inference of hidden states in recurrent mode)
-def infer_hidden_states(q, k, v, chunk_size=128, eps=1e-6):
-    k_cumsum = k.cumsum(dim=-2)
-    D_inv = 1. / torch.einsum('...nd,...nd->...n', q,
-                              k_cumsum.type_as(q) + eps)
-    context = torch.einsum('...nd,...ne->...nde', k, v)
-    context_cumsum = context.cumsum(dim=-3)
-    out = torch.einsum('...nde,...nd,...n->...ne', context_cumsum, q, D_inv)
-    last_k_cumsum = k_cumsum[:, :, -1]
-    last_context_cumsum = context_cumsum[:, :, -1]
-    states = dict(Z=last_k_cumsum, S=last_context_cumsum)
-    return out, states
-
-
 class FastAttention_(nn.Module):
     def __init__(self, dim_heads, nb_features=None, ortho_scaling=0, causal=False, generalized_attention=False,
                  kernel_fn=nn.ReLU(), no_projection=False):
@@ -179,7 +159,7 @@ class FastAttention_(nn.Module):
         self.projection_matrix.copy_(projections)
         del projections
 
-    def forward(self, q, k, v, inferrring_states):
+    def forward(self, q, k, v, states, inferrring_states):
         device = q.device
 
         if self.no_projection:
@@ -197,10 +177,53 @@ class FastAttention_(nn.Module):
             q = create_kernel(q, is_query=True)
             k = create_kernel(k, is_query=False)
 
-        if inferrring_states is not None:
-            out, states = infer_hidden_states(q, k, v)
+        if states is not None:
+            assert q.size(
+                2) == 1, 'recurrent inference can only be applied to sequences of len 1'
+            out, states = recursive_attention_step(q, k, v, states)
         else:
-            attn_fn = linear_attention if not self.causal else self.causal_linear_fn
-            out = attn_fn(q, k, v)
-            states = None
+            if inferrring_states:
+                out, states = infer_hidden_states(q, k, v)
+            else:
+                attn_fn = linear_attention if not self.causal else self.causal_linear_fn
+                out = attn_fn(q, k, v)
+                states = None
         return out, states
+
+
+# inefficient causal linear attention, without cuda code,
+# (used for parallel inference of hidden states in recurrent mode)
+def infer_hidden_states(q, k, v, chunk_size=128, eps=1e-6):
+    last_k_cumsum = 0
+    last_context_cumsum = 0
+    outs = []
+    num_chunks = q.size(2) // chunk_size
+    for q, k, v in zip(*map(lambda t: t.chunk(num_chunks, dim=-2), (q, k, v))):
+        k_cumsum = last_k_cumsum + k.cumsum(dim=-2)
+        D_inv = 1. / torch.einsum('...nd,...nd->...n',
+                                  q, k_cumsum.type_as(q) + eps)
+        context = torch.einsum('...nd,...ne->...nde', k, v)
+        context_cumsum = last_context_cumsum + context.cumsum(dim=-3)
+        out = torch.einsum('...nde,...nd,...n->...ne',
+                           context_cumsum, q, D_inv)
+        last_k_cumsum = k_cumsum[:, :, -1:]
+        last_context_cumsum = context_cumsum[:, :, -1:]
+        outs.append(out)
+
+    out = torch.cat(outs, dim=-2)
+    states = dict(Z=last_k_cumsum.squeeze(2), S=last_context_cumsum.squeeze(2))
+    return out, states
+
+
+def recursive_attention_step(q, k, v, states, eps=1e-6):
+    k_cumsum = states['Zs'].unsqueeze(2) + k
+    D_inv = 1. / torch.einsum('...nd,...nd->...n', q,
+                              k_cumsum.type_as(q) + eps)
+    context = torch.einsum('...nd,...ne->...nde', k, v)
+    context_cumsum = states['Ss'].unsqueeze(2) + context
+    out = torch.einsum('...nde,...nd,...n->...ne',
+                       context_cumsum, q, D_inv)
+    last_k_cumsum = k_cumsum[:, :, 0]
+    last_context_cumsum = context_cumsum[:, :, 0]
+    states = dict(Z=last_k_cumsum, S=last_context_cumsum)
+    return out, states

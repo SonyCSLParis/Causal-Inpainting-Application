@@ -107,7 +107,8 @@ class CausalModel(nn.Module):
             target_seq, metadata_dict, h_pe_init)
 
         # forward pass
-        out = self.transformer(target_seq, layer_pos_emb=layer_pos_emb, inferring_states=False)
+        out = self.transformer(
+            target_seq, layer_pos_emb=layer_pos_emb, inferring_states=False, states=None)
         output = out['x']
         output = output.view(batch_size,
                              -1,
@@ -185,7 +186,7 @@ class CausalModel(nn.Module):
                 }
             }
 
-    def forward_step(self, target, metadata_dict, state, i, h_pe):
+    def forward_step(self, target, metadata_dict, i):
         """
         if i == 0, target is not used: SOS instead
         :param target: sequence of tokens (batch_size,)
@@ -195,32 +196,63 @@ class CausalModel(nn.Module):
         """
         target_embedded = self.data_processor.embed(target)
         target_seq = flatten(target_embedded)
-        target_seq, layer_pos_emb, h_pe = self.prepare_sequence(
-            target_seq, metadata_dict, h_pe)
+        target_seq, layer_pos_emb, _ = self.prepare_sequence(
+            target_seq, metadata_dict, h_pe_init=None)
 
-        out = self.transformer(target_seq, layer_pos_emb=layer_pos_emb, inferring_states=False)
+        out = self.transformer(
+            target_seq, layer_pos_emb=layer_pos_emb, inferring_states=False, states=None)
+
+        # softmax
         output = out['x'][:, i, :]
-
         channel_index_output = i % self.num_channels_target
-
         weights = self.pre_softmaxes[channel_index_output](output)
 
         # no need for a loss
         return {
             'loss':    None,
-            'state':   state,
-            'h_pe':    h_pe,
             'weights': weights,
         }
 
-    def infer_hidden_states(self, priming_seq, metadata_dict, decoding_start_event):
+    def infer_hidden_states(self, priming_seq, metadata_dict, decoding_start_index):
         target_embedded = self.data_processor.embed(priming_seq)
         target_seq = flatten(target_embedded)
         target_seq, layer_pos_emb, h_pe = self.prepare_sequence(
             target_seq, metadata_dict, h_pe_init=None)
+        # +1 stand for dummy inputs
         out = self.transformer(
-            target_seq[:, :decoding_start_event], layer_pos_emb=layer_pos_emb[:, :decoding_start_event],
-            inferring_states=True)
-        # we still prepare logits, in case we want to use it for prediction
-        out['x'] = out['x'][:, -1]
-        return out
+            target_seq[:, :decoding_start_index +
+                       1], layer_pos_emb=layer_pos_emb[:, :decoding_start_index+1],
+            inferring_states=True, states=None)
+
+        # softmax
+        # prediction for time_index decoding_start_index
+        out_x = out['x'][:, -1]
+        channel_index_output = decoding_start_index % self.num_channels_target
+        weights = self.pre_softmaxes[channel_index_output](out_x)
+        return {
+            'loss': None,
+            'weights': weights,
+            'Zs': out['Zs'],
+            'Ss': out['Ss']
+        }
+
+    def recurrent_step(self, target, metadata_dict, states, decoding_index):
+        target_embedded = self.data_processor.embed(target)
+        target_seq = flatten(target_embedded)
+        target_seq, layer_pos_emb, h_pe = self.prepare_sequence(
+            target_seq, metadata_dict, h_pe_init=None)
+        out = self.transformer(
+            target_seq[:, decoding_index:decoding_index+1],
+            layer_pos_emb=layer_pos_emb[:, decoding_index:decoding_index+1],
+            inferring_states=False, states=states)
+        # softmax
+        # prediction for time_index decoding_start_index
+        out_x = out['x'][:, 0]
+        channel_index_output = decoding_index % self.num_channels_target
+        weights = self.pre_softmaxes[channel_index_output](out_x)
+        return {
+            'loss': None,
+            'weights': weights,
+            'Zs': out['Zs'],
+            'Ss': out['Ss']
+        }

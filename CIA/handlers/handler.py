@@ -1,12 +1,7 @@
-from torch.distributed.distributed_c10d import get_world_size
 from CIA.dataloaders.dataloader import DataloaderGenerator
 from CIA.utils import display_monitored_quantities, is_main_process
 import torch
 import os
-from tqdm import tqdm
-from itertools import islice
-from datetime import datetime
-import numpy as np
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.tensorboard import SummaryWriter
 import torch.distributed as dist
@@ -30,11 +25,14 @@ class Handler:
                                            weight_decay=1e-3)
 
     # ==== Wrappers
-    def forward(self, target, metadata_dict, h_pe_init=None):
-        return self.model.forward(target, metadata_dict, h_pe_init=h_pe_init)
+    def forward(self, target, metadata_dict):
+        return self.model.forward(target, metadata_dict)
 
-    def forward_step(self, target, metadata_dict, state, i, h_pe):
-        return self.model.module.forward_step(target, metadata_dict, state, i, h_pe)
+    def forward_step(self, target, metadata_dict, decoding_index):
+        return self.model.module.forward_step(target, metadata_dict, decoding_index)
+
+    def recurrent_step(self, target, metadata_dict, states, decoding_index):
+        return self.model.module.recurrent_step(target, metadata_dict, states, decoding_index)
 
     def train(self):
         self.model.train()
@@ -104,7 +102,7 @@ class Handler:
 
         self.model.load_state_dict(
             state_dict=state_dict
-            )
+        )
 
     def plot(self, epoch_id, monitored_quantities_train,
              monitored_quantities_val) -> None:
@@ -168,7 +166,7 @@ class Handler:
                           monitored_quantities_val)
 
     def epoch(self,
-        data_loader,
-        train=True,
-        num_batches=None):
+              data_loader,
+              train=True,
+              num_batches=None):
         raise NotImplementedError

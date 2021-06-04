@@ -1,9 +1,9 @@
+from CIA.model.utils.reversible import ReversibleSequence_, SequentialSequence_
 from CIA.model.utils.gating_layers import GatedSequence_
 from CIA.model.utils.attentions import CrossAttention_, SelfAttention_
 import torch.nn as nn
 from functools import partial
 
-from performer_pytorch.reversible import ReversibleSequence, SequentialSequence
 from performer_pytorch.performer_pytorch import Chunk, FeedForward, PreLayerNorm, PreScaleNorm, ProjectionUpdater,\
     ReZero, cast_tuple
 
@@ -147,17 +147,18 @@ class _Performer_(nn.Module):
 
         execute_type_ = execute_type
         if execute_type == 'reversible':
-            execute_type = ReversibleSequence
+            execute_type = ReversibleSequence_
         elif execute_type == 'gated':
             execute_type = GatedSequence_
         elif execute_type == 'residual':
-            execute_type = SequentialSequence
+            execute_type = SequentialSequence_
         else:
             raise NotImplementedError
 
         route_attn = ((True, False),) * depth * (2 if cross_attend else 1)
         route_context = ((False, False), (True, False)) * depth
-        attn_route_map = {'mask': route_attn, 'pos_emb': route_attn, 'inferring_states': route_attn}
+        attn_route_map = {'mask': route_attn, 'pos_emb': route_attn,
+                          'inferring_states': route_attn, 'states': route_attn}
         context_route_map = {'context': route_context,
                              'context_mask': route_context} if cross_attend else {}
         if execute_type_ == 'gated':
