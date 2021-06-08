@@ -238,12 +238,12 @@ class CausalModel(nn.Module):
         }
 
     def recurrent_step(self, target, metadata_dict, states, decoding_index):
-        aaa = time.time()
+        # aaa = time.time()
         target_embedded = self.data_processor.embed(target)
         target_seq = flatten(target_embedded)
         target_seq, layer_pos_emb, h_pe = self.prepare_sequence(
             target_seq, metadata_dict, h_pe_init=None)
-        bbb = time.time()
+        # bbb = time.time()
         out = self.transformer(
             target_seq[:, decoding_index:decoding_index+1],
             layer_pos_emb=layer_pos_emb[:, decoding_index:decoding_index+1],
@@ -253,9 +253,9 @@ class CausalModel(nn.Module):
         out_x = out['x'][:, 0]
         channel_index_output = decoding_index % self.num_channels_target
         weights = self.pre_softmaxes[channel_index_output](out_x)
-        ccc = time.time()
-        print(f'Time preprocess: {bbb-aaa}\t{(bbb-aaa)/(ccc-aaa)}\%')
-        print(f'Time generation: {ccc-bbb}\t{(ccc-bbb)/(ccc-aaa)}\%')
+        # ccc = time.time()
+        # print(f'Time preprocess: {bbb-aaa}\t{(bbb-aaa)/(ccc-aaa)}\%')
+        # print(f'Time generation: {ccc-bbb}\t{(ccc-bbb)/(ccc-aaa)}\%')
         return {
             'loss': None,
             'weights': weights,
