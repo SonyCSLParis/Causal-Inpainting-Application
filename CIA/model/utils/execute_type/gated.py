@@ -1,6 +1,6 @@
-from performer_pytorch.reversible import route_args
 import torch
-from torch import nn
+import torch.nn as nn
+from performer_pytorch.reversible import route_args
 
 
 class GatedSequence_(nn.Module):
@@ -20,11 +20,22 @@ class GatedSequence_(nn.Module):
     def forward(self, x, **kwargs):
         args = route_args(self.args_route, kwargs, len(self.layers))
         layers_and_args = list(zip(self.layers, args))
-
-        for (f, g), (f_args, g_args) in layers_and_args:
-            x = self.gating(x, f(x, **f_args))
+        states = []
+        for layer_ind, ((f, g), (f_args, g_args)) in enumerate(layers_and_args):
+            f_args_layer = {k: (dict(Zs=v['Zs'][:, :, :, layer_ind], Ss=v['Ss'][:, :, :, :, layer_ind]) if
+                                (k == 'states' and v is not None) else v) for k, v in f_args.items()}
+            f_x, state = f(x, **f_args_layer)
+            x = self.gating(x, f_x)
             x = self.gating(x, g(x, **g_args))
-        return x
+            if state is not None:
+                states.append(state)
+        if len(states) > 0:
+            Zs = torch.stack([st['Z'] for st in states], dim=-1)
+            Ss = torch.stack([st['S'] for st in states], dim=-1)
+        else:
+            Zs = torch.zeros_like(x)
+            Ss = torch.zeros_like(x)
+        return x, Zs, Ss
 
     def gating(self, x, y):
         """
