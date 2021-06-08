@@ -35,7 +35,7 @@ class Attention_(nn.Module):
             kernel_fn=kernel_fn, no_projection=no_projection)
 
         self.heads = heads
-        assert local_heads == 0, 'Dont use local attention, incompatible with recursive transfofos'
+        # assert local_heads == 0, 'Dont use local attention, incompatible with recursive transfofos'
         self.global_heads = heads - local_heads
         self.local_attn = LocalAttention(window_size=local_window_size, causal=causal, autopad=True,
                                          dropout=dropout, look_forward=int(

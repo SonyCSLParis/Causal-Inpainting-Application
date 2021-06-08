@@ -160,7 +160,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         # the kernel function to be used, if generalized attention is turned on, defaults to Relu
         kernel_fn=nn.ReLU(),
         # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
-        execute_type='reversible',
+        execute_type=decoder_kwargs['execute_type'],
         ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
         use_scalenorm=False,          # use scale norm, from 'Transformers without Tears' paper
         use_rezero=False,             # use rezero, from 'Rezero is all you need' paper
@@ -169,7 +169,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         # feedforward dropout
         ff_dropout=decoder_kwargs['dropout'],
         attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
-        local_attn_heads=0,           # No local attention. With: decoder_kwargs['n_head']//2 ??
+        local_attn_heads=decoder_kwargs['local_attn_heads'],           # No local attention. With: decoder_kwargs['n_head']//2 ??
         local_window_size=256,        # window size of local attention
     )
 
@@ -177,7 +177,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
     if decoder_type == 'performer':
         layer_pos_emb = IndexPositionalEmbedding(
             dim=dim_head, max_seq_len=max_seq_len)
-    elif decoder_type in ['elapsed_performer', 'elapsed_mixedInf_performer']:
+    elif decoder_type in ['elapsed_performer']:
         layer_pos_emb = ElapsedPositionalEmbedding(
             dim=dim_head, dataloader_generator=dataloader_generator)
     else:

@@ -59,14 +59,16 @@ config = {
     'decoder_kwargs':              dict(
         d_model=512,
         n_head=8,
+        local_attn_heads=4,
         num_decoder_layers=16,
         dropout=0.1,
         label_smoothing=False,
         nb_features=256,
+        execute_type='reversible'  # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  4,
+    'batch_size':                  16,
     'num_batches':                 256,
     'num_epochs':                  2000,
 
