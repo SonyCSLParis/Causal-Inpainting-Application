@@ -1,19 +1,12 @@
 from CIA.model.utils.execute_type.reversible_gated import ReversibleGatedSequence_
 from CIA.model.utils.execute_type.gated import GatedSequence_
 from CIA.model.utils.execute_type.reversible import ReversibleSequence_
-from CIA.model.utils.attentions import CrossAttention_, SelfAttention_
+from CIA.model.utils.attentions.attentions import CrossAttention_, SelfAttention_
 import torch.nn as nn
 from functools import partial
 
 from performer_pytorch.performer_pytorch import Chunk, FeedForward, PreLayerNorm, PreScaleNorm, ProjectionUpdater,\
     ReZero, cast_tuple
-
-""" TODO
-- code elapsed time encoddings
-- code SPE ?
-- a tester: qu'est-ce qu'on retire réellement dans le pos_emb ? token relative distance useless non ?
-Channel et ProgressBar restent ?
-"""
 
 
 class Performer_(nn.Module):
@@ -44,7 +37,8 @@ class Performer_(nn.Module):
         no_projection=False,
         auto_check_redraw=True,
         qkv_bias=False,
-        attn_out_bias=False
+        attn_out_bias=False,
+        layer_pos_enc=None
     ):
         super().__init__()
         local_attn_heads = cast_tuple(local_attn_heads)
@@ -58,7 +52,7 @@ class Performer_(nn.Module):
                                      nb_features, feature_redraw_interval, execute_type, ff_chunks,
                                      generalized_attention, kernel_fn, use_scalenorm, use_rezero, ff_glu, ff_dropout,
                                      attn_dropout, cross_attend, no_projection, auto_check_redraw,
-                                     qkv_bias, attn_out_bias)
+                                     qkv_bias, attn_out_bias, layer_pos_enc)
 
     def check_redraw_projections(self):
         self.performer.check_redraw_projections()
@@ -66,12 +60,12 @@ class Performer_(nn.Module):
     def fix_projection_matrices_(self):
         self.performer.fix_projection_matrices_()
 
-    def forward(self, x, layer_pos_emb, **kwargs):
+    def forward(self, x, layer_pos_emb, layer_pos_emb_local, **kwargs):
         b, n, d = x.shape
         assert n <= self.max_seq_len, f'sequence length {n} must be less than \
             the max sequence length {self.max_seq_len}'
         x = self.dropout(x)
-        out = self.performer(x, pos_emb=layer_pos_emb, **kwargs)
+        out = self.performer(x, pos_emb=layer_pos_emb, local_pos_emb=layer_pos_emb_local, **kwargs)
         # pre-softmax norm (improve training stability)
         out['x'] = self.norm(out['x'])
         return out
@@ -102,7 +96,8 @@ class _Performer_(nn.Module):
         no_projection=False,
         auto_check_redraw=True,
         qkv_bias=True,
-        attn_out_bias=True
+        attn_out_bias=True,
+        layer_pos_enc=None
     ):
         super().__init__()
         dim_head = dim // heads
@@ -129,7 +124,8 @@ class _Performer_(nn.Module):
                                           local_window_size=local_window_size, nb_features=nb_features,
                                           generalized_attention=generalized_attention, kernel_fn=kernel_fn,
                                           dropout=attn_dropout, no_projection=no_projection,
-                                          qkv_bias=qkv_bias, attn_out_bias=attn_out_bias)),
+                                          qkv_bias=qkv_bias, attn_out_bias=attn_out_bias,
+                                          layer_pos_enc=layer_pos_enc)),
                 wrapper_fn(Chunk(ff_chunks, FeedForward(
                     dim, mult=ff_mult, dropout=ff_dropout, glu=ff_glu), along_dim=1))
             ]))
@@ -141,7 +137,8 @@ class _Performer_(nn.Module):
                 wrapper_fn(CrossAttention_(dim, heads=heads, dim_head=dim_head, nb_features=nb_features,
                                            generalized_attention=generalized_attention, kernel_fn=kernel_fn,
                                            dropout=attn_dropout, no_projection=no_projection, qkv_bias=qkv_bias,
-                                           attn_out_bias=attn_out_bias)),
+                                           attn_out_bias=attn_out_bias,
+                                           layer_pos_enc=layer_pos_enc)),
                 wrapper_fn(Chunk(ff_chunks, FeedForward(
                     dim, mult=ff_mult, dropout=ff_dropout, glu=ff_glu), along_dim=1))
             ]))
@@ -160,7 +157,7 @@ class _Performer_(nn.Module):
 
         route_attn = ((True, False),) * depth * (2 if cross_attend else 1)
         route_context = ((False, False), (True, False)) * depth
-        attn_route_map = {'mask': route_attn, 'pos_emb': route_attn,
+        attn_route_map = {'mask': route_attn, 'pos_emb': route_attn, 'local_pos_emb': route_attn,
                           'inferring_states': route_attn, 'states': route_attn}
         context_route_map = {'context': route_context,
                              'context_mask': route_context} if cross_attend else {}

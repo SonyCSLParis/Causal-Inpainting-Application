@@ -95,4 +95,3 @@ class PianoDataloaderGenerator(DataloaderGenerator):
 
     def get_feature_index(self, feature_name):
         return self.features.index(feature_name)
-

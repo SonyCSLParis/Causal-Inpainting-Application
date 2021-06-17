@@ -1,11 +1,13 @@
+from CIA.model.utils.positional_embeddings.apply_pe import apply_rotary_pos_emb_, apply_spe_pos_emb_
 import math
 import torch
 import torch.nn as nn
-from einops import rearrange, repeat
+from einops import rearrange
 from local_attention import LocalAttention
 from functools import partial
 
-from performer_pytorch.performer_pytorch import causal_linear_attention, causal_linear_attention_noncuda, default, empty, exists, gaussian_orthogonal_random_matrix, generalized_kernel, linear_attention, softmax_kernel
+from performer_pytorch.performer_pytorch import causal_linear_attention, causal_linear_attention_noncuda, default,\
+    empty, exists, gaussian_orthogonal_random_matrix, generalized_kernel, linear_attention, softmax_kernel
 
 
 class Attention_(nn.Module):
@@ -24,19 +26,21 @@ class Attention_(nn.Module):
         dropout=0.,
         no_projection=False,
         qkv_bias=False,
-        attn_out_bias=True
+        attn_out_bias=True,
+        layer_pos_enc=None
     ):
         super().__init__()
         assert dim % heads == 0, 'dimension must be divisible by number of heads'
-        dim_head = default(dim_head, dim // heads)
+        self.dim_head = default(dim_head, dim // heads)
         inner_dim = dim_head * heads
-        self.fast_attention = FastAttention_(
-            dim_head, nb_features, causal=causal, generalized_attention=generalized_attention,
-            kernel_fn=kernel_fn, no_projection=no_projection)
+        self.feature_map = FeatureMap(dim_head, nb_features, generalized_attention=generalized_attention,
+                                      kernel_fn=kernel_fn, no_projection=no_projection)
+        self.fast_attention = FastAttention_(causal)
 
         self.heads = heads
         # assert local_heads == 0, 'Dont use local attention, incompatible with recursive transfofos'
         self.global_heads = heads - local_heads
+        self.local_heads = local_heads
         self.local_attn = LocalAttention(window_size=local_window_size, causal=causal, autopad=True,
                                          dropout=dropout, look_forward=int(
                                              not causal),
@@ -48,8 +52,18 @@ class Attention_(nn.Module):
         self.to_out = nn.Linear(inner_dim, dim, bias=attn_out_bias)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x, pos_emb=None, context=None, mask=None, context_mask=None, **kwargs):
-        _, _, _, h, gh = *x.shape, self.heads, self.global_heads
+        self.local_layerPE = layer_pos_enc['local_layerPE']
+        self.post_phi_layerPE = layer_pos_enc['post_phi_layerPE']
+        self.PE_type = layer_pos_enc['PE_type']
+        self.input_dim_global = layer_pos_enc['input_dim_global']
+        self.input_dim_local = layer_pos_enc['input_dim_local']
+        self.gated = layer_pos_enc['gated_layerSPE']
+        if self.gated and (self.PE_type == 'spe'):
+            self.gate_global = nn.Parameter(torch.randn(self.global_heads, self.input_dim_global))
+            self.gate_local = nn.Parameter(torch.randn(self.local_heads, self.input_dim_local))
+
+    def forward(self, x, pos_emb=None, local_pos_emb=None, context=None, mask=None, context_mask=None, **kwargs):
+        batch_size, length, _, h, gh = *x.shape, self.heads, self.global_heads
 
         # cross-attention
         cross_attend = exists(context)
@@ -72,8 +86,30 @@ class Attention_(nn.Module):
                 global_mask = context_mask[:, None, :, None]
                 v.masked_fill_(~global_mask, 0.)
 
+            if self.post_phi_layerPE:
+                q, k = self.feature_map(q, k)
+
             if exists(pos_emb) and not cross_attend:
-                q, k = apply_rotary_pos_emb_(q, k, pos_emb)
+                if self.PE_type == 'rotary':
+                    q, k = apply_rotary_pos_emb_(q, k, pos_emb)
+                elif self.PE_type == 'spe':
+                    qbar, kbar = torch.split(pos_emb, pos_emb.size(2)//2, dim=2)
+                    qbar = torch.reshape(
+                        qbar, (batch_size, length, gh, self.input_dim_global, -1))
+                    kbar = torch.reshape(
+                        kbar, (batch_size, length, gh, self.input_dim_global, -1))
+                    code_shape = (gh, self.input_dim_global)
+                    if self.gated:
+                        ggate = self.gate_global
+                    else:
+                        ggate = None
+                    q, k = apply_spe_pos_emb_(
+                        q, k, qbar, kbar, code_shape, ggate)
+                else:
+                    raise NotImplementedError
+
+            if not self.post_phi_layerPE:
+                q, k = self.feature_map(q, k)
 
             out, state = self.fast_attention(
                 q, k, v, kwargs['states'], kwargs['inferring_states'])
@@ -81,6 +117,27 @@ class Attention_(nn.Module):
 
         if not empty(lq):
             assert not cross_attend, 'local attention is not compatible with cross attention'
+
+            # Apply layer PE to local attention ? Not implemented in original implem or performer, but why ?
+            if self.local_layerPE:
+                if self.PE_type == 'rotary':
+                    lq, lk = apply_rotary_pos_emb_(lq, lk, local_pos_emb)
+                elif self.PE_type == 'spe':
+                    qbar, kbar = torch.split(local_pos_emb, local_pos_emb.size(2)//2, dim=2)
+                    lqbar = torch.reshape(
+                        qbar, (batch_size, length, self.local_heads, self.input_dim_local, -1))
+                    lkbar = torch.reshape(
+                        kbar, (batch_size, length, self.local_heads, self.input_dim_local, -1))
+                    code_shape = (self.local_heads, self.input_dim_local)
+                    if self.gated:
+                        lgate = self.gate_local
+                    else:
+                        lgate = None
+                    lq, lk = apply_spe_pos_emb_(
+                        lq, lk, lqbar, lkbar, code_shape, lgate)
+                else:
+                    raise NotImplementedError
+
             out = self.local_attn(lq, lk, lv, input_mask=mask)
             attn_outs.append(out)
 
@@ -102,26 +159,7 @@ class CrossAttention_(Attention_):
         return super().forward(*args, context=context, **kwargs)
 
 
-def rotate_every_two_(x):
-    x = rearrange(x, '... (d j) -> ... d j', j=2)
-    x1, x2 = x.unbind(dim=-1)
-    x = torch.stack((-x2, x1), dim=-1)
-    return rearrange(x, '... d j -> ... (d j)')
-
-
-def apply_rotary_pos_emb_(q, k, sinu_pos):
-    sinu_pos = rearrange(sinu_pos, 'b n (j d) -> b n j d', j=2)
-    sin, cos = sinu_pos.unbind(dim=-2)
-    sin, cos = map(lambda t: repeat(t, 'b t n -> b t (n j)', j=2), (sin, cos))
-    # TODO: use same positional embeddings for all heads ?? perhaps can be changed when parametrising thetas
-    sin_heads, cos_heads = map(lambda t: t.unsqueeze(
-        1), (sin, cos))  # unsqueeze for head dim
-    q, k = map(lambda t: (t * cos_heads) +
-               (rotate_every_two_(t) * sin_heads), (q, k))
-    return q, k
-
-
-class FastAttention_(nn.Module):
+class FeatureMap(nn.Module):
     def __init__(self, dim_heads, nb_features=None, ortho_scaling=0, causal=False, generalized_attention=False,
                  kernel_fn=nn.ReLU(), no_projection=False):
         super().__init__()
@@ -144,6 +182,32 @@ class FastAttention_(nn.Module):
         # queries and keys will be softmax-ed as in the original efficient attention paper
         self.no_projection = no_projection
 
+    @torch.no_grad()
+    def redraw_projection_matrix(self, device):
+        projections = self.create_projection(device=device)
+        self.projection_matrix.copy_(projections)
+        del projections
+
+    def forward(self, q, k):
+        device = q.device
+        if self.no_projection:
+            q = q.softmax(dim=-1)
+            k = torch.exp(k) if self.causal else k.softmax(dim=-2)
+        elif self.generalized_attention:
+            create_kernel = partial(generalized_kernel, kernel_fn=self.kernel_fn,
+                                    projection_matrix=self.projection_matrix, device=device)
+            q, k = map(create_kernel, (q, k))
+        else:
+            create_kernel = partial(
+                softmax_kernel, projection_matrix=self.projection_matrix, device=device)
+            q = create_kernel(q, is_query=True)
+            k = create_kernel(k, is_query=False)
+        return q, k
+
+
+class FastAttention_(nn.Module):
+    def __init__(self, causal=False):
+        super().__init__()
         self.causal = causal
         if causal:
             try:
@@ -153,30 +217,10 @@ class FastAttention_(nn.Module):
                 print('unable to import cuda code for auto-regressive Performer. will default to the memory inefficient non-cuda version')
                 self.causal_linear_fn = causal_linear_attention_noncuda
 
-    @torch.no_grad()
-    def redraw_projection_matrix(self, device):
-        projections = self.create_projection(device=device)
-        self.projection_matrix.copy_(projections)
-        del projections
-
     def forward(self, q, k, v, states, inferrring_states):
-        device = q.device
-
-        if self.no_projection:
-            q = q.softmax(dim=-1)
-            k = torch.exp(k) if self.causal else k.softmax(dim=-2)
-
-        elif self.generalized_attention:
-            create_kernel = partial(generalized_kernel, kernel_fn=self.kernel_fn,
-                                    projection_matrix=self.projection_matrix, device=device)
-            q, k = map(create_kernel, (q, k))
-
-        else:
-            create_kernel = partial(
-                softmax_kernel, projection_matrix=self.projection_matrix, device=device)
-            q = create_kernel(q, is_query=True)
-            k = create_kernel(k, is_query=False)
-
+        """
+        inputs are already feature mapped
+        """
         if states is not None:
             assert q.size(
                 2) == 1, 'recurrent inference can only be applied to sequences of len 1'

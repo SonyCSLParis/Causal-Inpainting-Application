@@ -1,3 +1,5 @@
+
+from CIA.model.utils.positional_embeddings.index_spe import SineSPE
 from CIA.model.utils.positional_embeddings.index_positional_embedding import IndexPositionalEmbedding
 from CIA.model.utils.positional_embeddings.elapsed_positional_embedding import ElapsedPositionalEmbedding
 from torch import nn
@@ -140,10 +142,51 @@ def get_positional_embedding(dataloader_generator,
 
 # todo write Decoder base class
 def get_decoder(data_processor, dataloader_generator, positional_embedding,
-                sos_embedding, decoder_type, decoder_kwargs, training_phase):
+                sos_embedding, decoder_kwargs, training_phase):
     num_channels_decoder = data_processor.num_channels
     num_events_decoder = data_processor.num_events
     max_seq_len = data_processor.num_tokens
+    post_phi_layerPE = decoder_kwargs['post_phi_layerPE']
+    if post_phi_layerPE:
+        dim_layerPE = decoder_kwargs['nb_features']
+    else:
+        dim_layerPE = decoder_kwargs['d_model'] // decoder_kwargs['n_head']
+    dim_layerPE_local = decoder_kwargs['d_model'] // decoder_kwargs['n_head']
+
+    layer_pos_emb_local = None
+    if decoder_kwargs['layer_pe'] == 'index_rotary':
+        layer_pos_emb = IndexPositionalEmbedding(
+            dim=dim_layerPE, max_seq_len=max_seq_len)
+        if decoder_kwargs['local_attn_heads'] > 0:
+            layer_pos_emb_local = IndexPositionalEmbedding(
+                dim=dim_layerPE_local, max_seq_len=max_seq_len)
+        PE_type = 'rotary'
+    elif decoder_kwargs['layer_pe'] == 'elapsed_rotary':
+        layer_pos_emb = ElapsedPositionalEmbedding(
+            dim=dim_layerPE, dataloader_generator=dataloader_generator)
+        if decoder_kwargs['local_attn_heads'] > 0:
+            layer_pos_emb_local = ElapsedPositionalEmbedding(
+                dim=dim_layerPE_local, dataloader_generator=dataloader_generator)
+        PE_type = 'rotary'
+    elif decoder_kwargs['layer_pe'] == 'index_spe':
+        num_heads = decoder_kwargs['n_head']
+        num_sines = 1
+        num_realizations = 32
+        num_global_head = num_heads-decoder_kwargs['local_attn_heads']
+        num_local_head = decoder_kwargs['local_attn_heads']
+        poscoder = SineSPE(num_heads=num_global_head, in_features=dim_layerPE,
+                           num_sines=num_sines, num_realizations=num_realizations)
+        layer_pos_emb = poscoder
+        if decoder_kwargs['local_attn_heads'] > 0:
+            poscoder_local = SineSPE(num_heads=num_local_head, in_features=dim_layerPE_local,
+                                     num_sines=num_sines, num_realizations=num_realizations)
+            layer_pos_emb_local = poscoder_local
+        PE_type = 'spe'
+    # elif decoder_kwargs['layer_pe'] == 'elapsed_spe':
+    #     poscoder = ElaspedSineSPE(num_heads=num_heads, in_features=keys_dim,
+    #                               num_sines=num_sines, num_realizations=num_realizations)
+    else:
+        raise NotImplementedError
 
     transformer = Performer_(
         max_seq_len=max_seq_len,    # max sequence length
@@ -169,34 +212,31 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         # feedforward dropout
         ff_dropout=decoder_kwargs['dropout'],
         attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
-        local_attn_heads=decoder_kwargs['local_attn_heads'],           # No local attention. With: decoder_kwargs['n_head']//2 ??
-        local_window_size=256,        # window size of local attention
+        # No local attention. With: decoder_kwargs['n_head']//2 ??
+        local_attn_heads=decoder_kwargs['local_attn_heads'],
+        local_window_size=256,        # window size of local attention,
+        layer_pos_enc={
+            'gated_layerSPE': decoder_kwargs['gated_layerSPE'],
+            'local_layerPE': decoder_kwargs['local_layerPE'],
+            'post_phi_layerPE': decoder_kwargs['post_phi_layerPE'],
+            'PE_type': PE_type,
+            'input_dim_global': dim_layerPE,
+            'input_dim_local': dim_layerPE_local
+        }
     )
 
-    dim_head = decoder_kwargs['d_model'] // decoder_kwargs['n_head']
-    if decoder_type == 'performer':
-        layer_pos_emb = IndexPositionalEmbedding(
-            dim=dim_head, max_seq_len=max_seq_len)
-    elif decoder_type in ['elapsed_performer']:
-        layer_pos_emb = ElapsedPositionalEmbedding(
-            dim=dim_head, dataloader_generator=dataloader_generator)
-    else:
-        raise NotImplementedError
-
-    if decoder_type in ['performer', 'elapsed_performer']:
-        decoder = CausalModel(
-            data_processor=data_processor,
-            dataloader_generator=dataloader_generator,
-            positional_embedding=positional_embedding,
-            sos_embedding=sos_embedding,
-            d_model=decoder_kwargs['d_model'],
-            num_channels_decoder=num_channels_decoder,
-            num_events_decoder=num_events_decoder,
-            label_smoothing=decoder_kwargs['label_smoothing'],
-            transformer=transformer,
-            layer_pos_emb=layer_pos_emb)
-    else:
-        raise NotImplementedError
+    decoder = CausalModel(
+        data_processor=data_processor,
+        dataloader_generator=dataloader_generator,
+        positional_embedding=positional_embedding,
+        sos_embedding=sos_embedding,
+        d_model=decoder_kwargs['d_model'],
+        num_channels_decoder=num_channels_decoder,
+        num_events_decoder=num_events_decoder,
+        label_smoothing=decoder_kwargs['label_smoothing'],
+        transformer=transformer,
+        layer_pos_emb=layer_pos_emb,
+        layer_pos_emb_local=layer_pos_emb_local)
 
     return decoder
 

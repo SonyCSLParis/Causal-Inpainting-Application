@@ -11,5 +11,5 @@ class IndexPositionalEmbedding(nn.Module):
         emb = torch.cat((sinusoid_inp.sin(), sinusoid_inp.cos()), dim=-1)
         self.register_buffer('emb', emb)
 
-    def forward(self, x_embed, i, h, metadata_dict):
+    def forward(self, x_embed, h, metadata_dict):
         return self.emb[None, :x_embed.shape[1], :].to(x_embed)

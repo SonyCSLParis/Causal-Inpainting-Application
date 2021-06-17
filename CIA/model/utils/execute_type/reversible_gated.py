@@ -163,3 +163,8 @@ class ReversibleGatedSequence_(nn.Module):
         x, Zs, Ss = _ReversibleFunction_.apply(x, blocks, args)
         x = torch.stack(x.chunk(2, dim=-1)).sum(dim=0)
         return x, Zs, Ss
+
+
+# if __name__ == "__main__":
+#     model = ReversibleGatedSequence_
+#     print("gradCheck :", torch.autograd.gradcheck((model, (b_x,))))

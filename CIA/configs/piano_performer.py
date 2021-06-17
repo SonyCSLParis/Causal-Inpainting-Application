@@ -25,7 +25,6 @@ config = {
 
     # --- Positional Embedding ---
     'positional_embedding_dict': dict(
-        # Est-ce qu'on laisse les sinusoidal absolute ? Peut servir pour savoir début/fin ? ou les progress bar seulement alos ?
         sinusoidal_embedding=dict(
             positional_embedding_size=128,
             num_channels=4,
@@ -56,14 +55,19 @@ config = {
     ),
 
     # --- Decoder ---
-    'decoder_type':                'performer',
-    'decoder_kwargs':              dict(
+    'decoder_kwargs': dict(
         d_model=512,
         n_head=8,
+        local_attn_heads=0,
         num_decoder_layers=16,
         dropout=0.1,
         label_smoothing=False,
-        nb_features=256,
+        nb_features=256,  # in FAVOR+
+        execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
+        layer_pe='index_rotary',  # 'index_rotary', 'elapsed_rotary', 'index_spe':
+        gated_layerSPE=False,
+        local_layerPE=False,
+        post_phi_layerPE=True,
     ),
     # ======== Training ========
     'lr':                          1e-4,
