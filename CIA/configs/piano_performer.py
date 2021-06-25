@@ -62,12 +62,14 @@ config = {
         num_decoder_layers=16,
         dropout=0.1,
         label_smoothing=False,
-        nb_features=256,  # in FAVOR+
+        n_features=8,  # in FAVOR+
         execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
-        layer_pe='index_rotary',  # 'index_rotary', 'elapsed_rotary', 'index_spe':
+        layer_pe='index_spe_factorized',  # 'index_rotary', 'elapsed_rotary', 'index_spe', 'index_spe_factorized:
+        layer_pe_args=dict(n_sines=2, n_realizations=4),
         gated_layerSPE=False,
         local_layerPE=False,
         post_phi_layerPE=True,
+        upsampled_layerPE=False,
     ),
     # ======== Training ========
     'lr':                          1e-4,

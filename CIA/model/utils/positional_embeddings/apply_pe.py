@@ -21,6 +21,56 @@ def apply_rotary_pos_emb_(q, k, sinu_pos):
     return q, k
 
 
+def apply_rotary_pos_emb_upsampled(q, k, sinu_pos):
+    sinu_pos = rearrange(sinu_pos, 'b n (j d) -> b n j d', j=2)
+    sin, cos = sinu_pos.unbind(dim=-2)
+    sin, cos = map(lambda t: repeat(t, 'b t n -> b t (n j)', j=2), (sin, cos))
+    # TODO: use same positional embeddings for all heads ?? perhaps can be changed when parametrising thetas
+    sin_heads, cos_heads = map(lambda t: t.unsqueeze(
+        1), (sin, cos))  # unsqueeze for head dim
+    # upsample q and k
+    q_up, k_up = map(lambda t: rearrange([t, torch.zeros_like(t)], 't b h l d -> b h l (d t)'), (q, k))
+    q_rot, k_rot = map(lambda t: (t * cos_heads) +
+                       (rotate_every_two_(t) * sin_heads), (q_up, k_up))
+    return q_rot, k_rot
+
+
+def apply_spe_pos_emb_factorised(queries, keys, qbar, kbar, code_shape, gate):
+    # apply gate if required
+    if gate is not None:
+        # incorporate the constant bias for Pd if required. First draw noise
+        # such that noise noise^T = 1, for each head, feature, realization.
+        # qbar is : (1, *shape, num_heads, keys_dim, num_realizations)
+        in_features = qbar.shape[-2]
+        num_realizations = qbar.shape[-1]
+        gating_noise = torch.randn(
+            code_shape+(num_realizations,),
+            device=queries.device) / (in_features * num_realizations)**0.25
+        # normalize it so that it's an additive 1 to Pd
+        # gating_noise = gating_noise / gating_noise.norm(dim=2, keepdim=True)
+
+        # constrain the gate parameter to be in [0 1]
+        gate = torch.sigmoid(gate[..., None])
+
+        # qbar is (1, *shape, num_heads, keys_dim, num_realizations)
+        # gating noise is (num_heads, keys_dim, num_realizations)
+        # gate is (num_heads, keys_dim, 1)
+        # import ipdb; ipdb.set_trace()
+        qbar = torch.sqrt(1.-gate) * qbar + torch.sqrt(gate) * gating_noise
+        kbar = torch.sqrt(1.-gate) * kbar + torch.sqrt(gate) * gating_noise
+
+    # sum over d after multiplying by queries and keys
+    # qbar/kbar are (1, *shape, num_heads, keys_dim, num_realizations)
+    # queries/keys  (batchsize, *shape, num_heads, keys_dim)
+    qhat = (qbar[:, :, :, None, :] * queries[..., None])
+    khat = (kbar[:, :, :, None, :] * keys[..., None])
+    # qhat = qhat.sum(axis=-2)
+    # khat = khat.sum(axis=-2)
+
+    # result is (batchsize, ..., num_heads, n_features, n_realisations)
+    return qhat, khat
+
+
 def apply_spe_pos_emb_(queries, keys, qbar, kbar, code_shape, gate):
     # check that codes have the shape we are expecting
     if qbar.shape[-3:-1] != code_shape:
@@ -69,7 +119,7 @@ def apply_spe_pos_emb_(queries, keys, qbar, kbar, code_shape, gate):
         # qbar is (1, *shape, num_heads, keys_dim, num_realizations)
         # gating noise is (num_heads, keys_dim, num_realizations)
         # gate is (num_heads, keys_dim, 1)
-        #import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
         qbar = torch.sqrt(1.-gate) * qbar + torch.sqrt(gate) * gating_noise
         kbar = torch.sqrt(1.-gate) * kbar + torch.sqrt(gate) * gating_noise
 

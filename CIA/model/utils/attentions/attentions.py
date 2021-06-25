@@ -1,13 +1,13 @@
-from CIA.model.utils.positional_embeddings.apply_pe import apply_rotary_pos_emb_, apply_spe_pos_emb_
-import math
-import torch
-import torch.nn as nn
-from einops import rearrange
-from local_attention import LocalAttention
-from functools import partial
-
 from performer_pytorch.performer_pytorch import causal_linear_attention, causal_linear_attention_noncuda, default,\
     empty, exists, gaussian_orthogonal_random_matrix, generalized_kernel, linear_attention, softmax_kernel
+from functools import partial
+from local_attention import LocalAttention
+from einops import rearrange
+import torch.nn as nn
+import torch
+import math
+from CIA.model.utils.positional_embeddings.apply_pe import apply_rotary_pos_emb_, apply_rotary_pos_emb_upsampled, \
+    apply_spe_pos_emb_, apply_spe_pos_emb_factorised
 
 
 class Attention_(nn.Module):
@@ -58,9 +58,12 @@ class Attention_(nn.Module):
         self.input_dim_global = layer_pos_enc['input_dim_global']
         self.input_dim_local = layer_pos_enc['input_dim_local']
         self.gated = layer_pos_enc['gated_layerSPE']
-        if self.gated and (self.PE_type == 'spe'):
-            self.gate_global = nn.Parameter(torch.randn(self.global_heads, self.input_dim_global))
-            self.gate_local = nn.Parameter(torch.randn(self.local_heads, self.input_dim_local))
+        self.upsampled_layerPE = layer_pos_enc['upsampled_layerPE']
+        if self.gated and (self.PE_type in ['spe', 'spe_factorized']):
+            self.gate_global = nn.Parameter(torch.randn(
+                self.global_heads, self.input_dim_global))
+            self.gate_local = nn.Parameter(torch.randn(
+                self.local_heads, self.input_dim_local))
 
     def forward(self, x, pos_emb=None, local_pos_emb=None, context=None, mask=None, context_mask=None, **kwargs):
         batch_size, length, _, h, gh = *x.shape, self.heads, self.global_heads
@@ -92,27 +95,61 @@ class Attention_(nn.Module):
             if exists(pos_emb) and not cross_attend:
                 if self.PE_type == 'rotary':
                     q, k = apply_rotary_pos_emb_(q, k, pos_emb)
-                elif self.PE_type == 'spe':
-                    qbar, kbar = torch.split(pos_emb, pos_emb.size(2)//2, dim=2)
-                    qbar = torch.reshape(
-                        qbar, (batch_size, length, gh, self.input_dim_global, -1))
-                    kbar = torch.reshape(
-                        kbar, (batch_size, length, gh, self.input_dim_global, -1))
-                    code_shape = (gh, self.input_dim_global)
-                    if self.gated:
-                        ggate = self.gate_global
+                    if self.upsampled_layerPE:
+                        q, k = apply_rotary_pos_emb_upsampled(q, k, pos_emb)
+                elif self.PE_type in ['spe', 'spe_factorized']:
+                    if self.upsampled_layerPE:
+                        raise NotImplementedError
+                    qbar, kbar = torch.split(
+                        pos_emb, pos_emb.size(2)//2, dim=2)
+                    if self.PE_type == 'spe_factorized':
+                        qbar = torch.reshape(
+                            qbar, (batch_size, length, gh, -1)).permute(0, 2, 1, 3)
+                        kbar = torch.reshape(
+                            kbar, (batch_size, length, gh, -1)).permute(0, 2, 1, 3)
+                        code_shape = (gh, self.input_dim_global)
+                        if self.gated:
+                            ggate = self.gate_global
+                        else:
+                            ggate = None
+                        q, k = apply_spe_pos_emb_factorised(
+                            q, k, qbar, kbar, code_shape, ggate)
+                        q, k = map(lambda t: t.permute(0, 1, 4, 2, 3), (q, k))
+                        b, h, r_pe, l, r_f = q.shape
+                        q, k = map(lambda t: t.reshape(b, h * r_pe, l, r_f), (q, k))
                     else:
-                        ggate = None
-                    q, k = apply_spe_pos_emb_(
-                        q, k, qbar, kbar, code_shape, ggate)
+                        qbar = torch.reshape(
+                            qbar, (batch_size, length, gh, self.input_dim_global, -1))
+                        kbar = torch.reshape(
+                            kbar, (batch_size, length, gh, self.input_dim_global, -1))
+                        code_shape = (gh, self.input_dim_global)
+                        if self.gated:
+                            ggate = self.gate_global
+                        else:
+                            ggate = None
+                        q, k = apply_spe_pos_emb_(
+                            q, k, qbar, kbar, code_shape, ggate)
                 else:
                     raise NotImplementedError
+
+            if torch.any(torch.isnan(q)):
+                print('stop')
+            if torch.any(torch.isnan(k)):
+                print('stop')
 
             if not self.post_phi_layerPE:
                 q, k = self.feature_map(q, k)
 
+            if torch.any(torch.isnan(q)):
+                print('stop')
+            if torch.any(torch.isnan(k)):
+                print('stop')
+
             out, state = self.fast_attention(
                 q, k, v, kwargs['states'], kwargs['inferring_states'])
+            if self.PE_type == 'spe_factorized':
+                d_out = out.shape[-1]
+                out = out.reshape(b, h, r_pe, l, d_out).sum(2)
             attn_outs.append(out)
 
         if not empty(lq):
@@ -123,7 +160,8 @@ class Attention_(nn.Module):
                 if self.PE_type == 'rotary':
                     lq, lk = apply_rotary_pos_emb_(lq, lk, local_pos_emb)
                 elif self.PE_type == 'spe':
-                    qbar, kbar = torch.split(local_pos_emb, local_pos_emb.size(2)//2, dim=2)
+                    qbar, kbar = torch.split(
+                        local_pos_emb, local_pos_emb.size(2)//2, dim=2)
                     lqbar = torch.reshape(
                         qbar, (batch_size, length, self.local_heads, self.input_dim_local, -1))
                     lkbar = torch.reshape(

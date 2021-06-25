@@ -1,4 +1,5 @@
 
+from CIA.model.utils.positional_embeddings.index_SPE_factorized import SineSPEFactorized
 from CIA.model.utils.positional_embeddings.index_spe import SineSPE
 from CIA.model.utils.positional_embeddings.index_positional_embedding import IndexPositionalEmbedding
 from CIA.model.utils.positional_embeddings.elapsed_positional_embedding import ElapsedPositionalEmbedding
@@ -148,10 +149,14 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
     max_seq_len = data_processor.num_tokens
     post_phi_layerPE = decoder_kwargs['post_phi_layerPE']
     if post_phi_layerPE:
-        dim_layerPE = decoder_kwargs['nb_features']
+        dim_layerPE = decoder_kwargs['n_features']
     else:
         dim_layerPE = decoder_kwargs['d_model'] // decoder_kwargs['n_head']
     dim_layerPE_local = decoder_kwargs['d_model'] // decoder_kwargs['n_head']
+
+    if decoder_kwargs['upsampled_layerPE']:
+        dim_layerPE *= 2
+        dim_layerPE_local *= 2
 
     layer_pos_emb_local = None
     if decoder_kwargs['layer_pe'] == 'index_rotary':
@@ -169,9 +174,10 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
                 dim=dim_layerPE_local, dataloader_generator=dataloader_generator)
         PE_type = 'rotary'
     elif decoder_kwargs['layer_pe'] == 'index_spe':
+        layer_pe_args = decoder_kwargs['layer_pe_args']
         num_heads = decoder_kwargs['n_head']
-        num_sines = 1
-        num_realizations = 32
+        num_sines = layer_pe_args['n_sines']
+        num_realizations = layer_pe_args['n_realizations']
         num_global_head = num_heads-decoder_kwargs['local_attn_heads']
         num_local_head = decoder_kwargs['local_attn_heads']
         poscoder = SineSPE(num_heads=num_global_head, in_features=dim_layerPE,
@@ -182,9 +188,21 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
                                      num_sines=num_sines, num_realizations=num_realizations)
             layer_pos_emb_local = poscoder_local
         PE_type = 'spe'
-    # elif decoder_kwargs['layer_pe'] == 'elapsed_spe':
-    #     poscoder = ElaspedSineSPE(num_heads=num_heads, in_features=keys_dim,
-    #                               num_sines=num_sines, num_realizations=num_realizations)
+    elif decoder_kwargs['layer_pe'] == 'index_spe_factorized':
+        layer_pe_args = decoder_kwargs['layer_pe_args']
+        num_heads = decoder_kwargs['n_head']
+        num_sines = layer_pe_args['n_sines']
+        num_realizations = layer_pe_args['n_realizations']
+        num_global_head = num_heads-decoder_kwargs['local_attn_heads']
+        num_local_head = decoder_kwargs['local_attn_heads']
+        poscoder = SineSPEFactorized(
+            num_heads=num_global_head, num_sines=num_sines, num_realizations=num_realizations)
+        layer_pos_emb = poscoder
+        if decoder_kwargs['local_attn_heads'] > 0:
+            poscoder_local = SineSPEFactorized(
+                num_heads=num_local_head, num_sines=num_sines, num_realizations=num_realizations)
+            layer_pos_emb_local = poscoder_local
+        PE_type = 'spe_factorized'
     else:
         raise NotImplementedError
 
@@ -195,7 +213,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         heads=decoder_kwargs['n_head'],                 # heads
         causal=True,                  # auto-regressive or not
         # number of random features, if not set, will default to (d * log(d)), where d is the dimension of each head
-        nb_features=decoder_kwargs['nb_features'],
+        nb_features=decoder_kwargs['n_features'],
         # how frequently to redraw the projection matrix, the more frequent, the slower the training
         feature_redraw_interval=1000,
         # defaults to softmax approximation, but can be set to True for generalized attention
@@ -221,7 +239,8 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
             'post_phi_layerPE': decoder_kwargs['post_phi_layerPE'],
             'PE_type': PE_type,
             'input_dim_global': dim_layerPE,
-            'input_dim_local': dim_layerPE_local
+            'input_dim_local': dim_layerPE_local,
+            'upsampled_layerPE': decoder_kwargs['upsampled_layerPE'],
         }
     )
 
