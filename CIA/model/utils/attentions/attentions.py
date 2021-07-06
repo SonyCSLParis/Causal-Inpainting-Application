@@ -1,13 +1,25 @@
-from performer_pytorch.performer_pytorch import causal_linear_attention, causal_linear_attention_noncuda, default,\
-    empty, exists, gaussian_orthogonal_random_matrix, generalized_kernel, linear_attention, softmax_kernel
+from CIA.model.utils.positional_embeddings.pe_modules.index_rototor import Rototor
+from CIA.model.utils.positional_embeddings.pe_modules.index_spe_factorized import SineSPEFactorized
+from CIA.model.utils.positional_embeddings.pe_modules.index_spe import SineSPE
+from CIA.model.utils.positional_embeddings.pe_modules.elapsed_positional_embedding import ElapsedPositionalEmbedding
+from CIA.model.utils.positional_embeddings.pe_modules.index_positional_embedding import IndexPositionalEmbedding
+from performer_pytorch.performer_pytorch import APEX_AVAILABLE, default,\
+    empty, exists, gaussian_orthogonal_random_matrix, generalized_kernel, linear_attention, null_context, softmax_kernel
+from torch.cuda.amp import autocast
 from functools import partial
 from local_attention import LocalAttention
 from einops import rearrange
 import torch.nn as nn
 import torch
+import torch.nn.functional as F
 import math
-from CIA.model.utils.positional_embeddings.apply_pe import apply_rotary_pos_emb_, apply_rotary_pos_emb_upsampled, \
+from CIA.model.utils.positional_embeddings.apply_pe import apply_rotary_pos_emb_, apply_rototor_pos_emb_, \
     apply_spe_pos_emb_, apply_spe_pos_emb_factorised
+try:
+    from apex import amp
+    APEX_AVAILABLE = True
+except:
+    APEX_AVAILABLE = False
 
 
 class Attention_(nn.Module):
@@ -27,7 +39,10 @@ class Attention_(nn.Module):
         no_projection=False,
         qkv_bias=False,
         attn_out_bias=True,
-        layer_pos_enc=None
+        layer_pe_type=None,
+        layer_pos_enc=None,
+        max_seq_len=None,
+        dataloader_generator=None,
     ):
         super().__init__()
         assert dim % heads == 0, 'dimension must be divisible by number of heads'
@@ -46,27 +61,47 @@ class Attention_(nn.Module):
                                              not causal),
                                          rel_pos_emb_config=(dim_head, local_heads)) if local_heads > 0 else None
 
+        # linear mapping to q, k, v
         self.to_q = nn.Linear(dim, inner_dim, bias=qkv_bias)
         self.to_k = nn.Linear(dim, inner_dim, bias=qkv_bias)
         self.to_v = nn.Linear(dim, inner_dim, bias=qkv_bias)
         self.to_out = nn.Linear(inner_dim, dim, bias=attn_out_bias)
         self.dropout = nn.Dropout(dropout)
 
+        # positional encodings
         self.local_layerPE = layer_pos_enc['local_layerPE']
         self.post_phi_layerPE = layer_pos_enc['post_phi_layerPE']
-        self.PE_type = layer_pos_enc['PE_type']
         self.input_dim_global = layer_pos_enc['input_dim_global']
         self.input_dim_local = layer_pos_enc['input_dim_local']
         self.gated = layer_pos_enc['gated_layerSPE']
         self.upsampled_layerPE = layer_pos_enc['upsampled_layerPE']
+        layer_pe_args = layer_pos_enc['layer_pe_args']
         if self.gated and (self.PE_type in ['spe', 'spe_factorized']):
             self.gate_global = nn.Parameter(torch.randn(
                 self.global_heads, self.input_dim_global))
             self.gate_local = nn.Parameter(torch.randn(
                 self.local_heads, self.input_dim_local))
+        self.to_theta_q = nn.Linear(
+            dim, self.input_dim_global*self.global_heads, bias=qkv_bias)
 
-    def forward(self, x, pos_emb=None, local_pos_emb=None, context=None, mask=None, context_mask=None, **kwargs):
+        self.layer_pos_emb, self.layer_pos_emb_local, PE_type = \
+            get_pes(layer_pe_type, n_global_heads=self.heads, n_local_heads=self.local_heads,
+                    dim_layerPE=self.input_dim_global, dim_layerPE_local=self.input_dim_local,
+                    max_seq_len=max_seq_len, dataloader_generator=dataloader_generator,
+                    layer_pe_args=layer_pe_args)
+        self.PE_type = PE_type
+
+    def forward(self, x, pos_emb_input=None, context=None, mask=None, context_mask=None,
+                **kwargs):
         batch_size, length, _, h, gh = *x.shape, self.heads, self.global_heads
+
+        # compute layer positional embeddings. pos_emb represents the input to the pe module, i.e. indices or
+        # elapsed time
+        # if self.layer_pos_emb is not None:
+
+        # if self.layer_pos_emb_local is not None:
+        #     local_pos_emb = self.layer_pos_emb_local(
+        #         pos_emb_input=pos_emb_input)
 
         # cross-attention
         cross_attend = exists(context)
@@ -74,13 +109,17 @@ class Attention_(nn.Module):
         context_mask = default(
             context_mask, mask) if not cross_attend else context_mask
 
-        q, k, v = self.to_q(x), self.to_k(context), self.to_v(context)
+        if self.to_theta_q is not None:
+            q, k, v, theta_q = self.to_q(x), self.to_k(
+                context), self.to_v(context), self.to_theta_q(x)
+        else:
+            q, k, v = self.to_q(x), self.to_k(context), self.to_v(context)
 
-        q, k, v = map(lambda t: rearrange(
-            t, 'b n (h d) -> b h n d', h=h), (q, k, v))
+        q, k, v, theta_q = map(lambda t: rearrange(
+            t, 'b n (h d) -> b h n d', h=h) if t is not None else None, (q, k, v, theta_q))
         # split between global and local heads
-        (q, lq), (k, lk), (v, lv) = map(
-            lambda t: (t[:, :gh], t[:, gh:]), (q, k, v))
+        (q, lq), (k, lk), (v, lv), (theta_q, l_theta_q) = map(
+            lambda t: (t[:, :gh], t[:, gh:]) if t is not None else None, (q, k, v, theta_q))
 
         attn_outs = []
 
@@ -90,47 +129,54 @@ class Attention_(nn.Module):
                 v.masked_fill_(~global_mask, 0.)
 
             if self.post_phi_layerPE:
-                q, k = self.feature_map(q, k)
+                # q, k = self.feature_map(q, k)
+                q, k = map(lambda t: F.elu(t) + 1, (q, k))
 
-            if exists(pos_emb) and not cross_attend:
-                if self.PE_type == 'rotary':
-                    q, k = apply_rotary_pos_emb_(q, k, pos_emb)
-                    if self.upsampled_layerPE:
-                        q, k = apply_rotary_pos_emb_upsampled(q, k, pos_emb)
-                elif self.PE_type in ['spe', 'spe_factorized']:
-                    if self.upsampled_layerPE:
-                        raise NotImplementedError
-                    qbar, kbar = torch.split(
-                        pos_emb, pos_emb.size(2)//2, dim=2)
-                    if self.PE_type == 'spe_factorized':
-                        qbar = torch.reshape(
-                            qbar, (batch_size, length, gh, -1)).permute(0, 2, 1, 3)
-                        kbar = torch.reshape(
-                            kbar, (batch_size, length, gh, -1)).permute(0, 2, 1, 3)
-                        code_shape = (gh, self.input_dim_global)
-                        if self.gated:
-                            ggate = self.gate_global
-                        else:
-                            ggate = None
-                        q, k = apply_spe_pos_emb_factorised(
-                            q, k, qbar, kbar, code_shape, ggate)
-                        q, k = map(lambda t: t.permute(0, 1, 4, 2, 3), (q, k))
-                        b, h, r_pe, l, r_f = q.shape
-                        q, k = map(lambda t: t.reshape(b, h * r_pe, l, r_f), (q, k))
-                    else:
-                        qbar = torch.reshape(
-                            qbar, (batch_size, length, gh, self.input_dim_global, -1))
-                        kbar = torch.reshape(
-                            kbar, (batch_size, length, gh, self.input_dim_global, -1))
-                        code_shape = (gh, self.input_dim_global)
-                        if self.gated:
-                            ggate = self.gate_global
-                        else:
-                            ggate = None
-                        q, k = apply_spe_pos_emb_(
-                            q, k, qbar, kbar, code_shape, ggate)
-                else:
-                    raise NotImplementedError
+            if pos_emb_input is not None:
+                if self.PE_type == 'rototor':
+                    pos_emb_q = self.layer_pos_emb(
+                        pe_input=pos_emb_input, offset=theta_q)
+                    pos_emb_k = self.layer_pos_emb(
+                        pe_input=pos_emb_input, offset=None)
+                    q_rot = apply_rototor_pos_emb_(q, pos_emb_q)
+                    k_rot = apply_rototor_pos_emb_(k, pos_emb_k)
+                # if self.PE_type == 'rotary':
+                #     q, k = apply_rotary_pos_emb_(q, k, pos_emb)
+                # elif self.PE_type in ['spe', 'spe_factorized']:
+                #     if self.upsampled_layerPE:
+                #         raise NotImplementedError
+                #     qbar, kbar = torch.split(
+                #         pos_emb, pos_emb.size(2)//2, dim=2)
+                #     if self.PE_type == 'spe_factorized':
+                #         qbar = torch.reshape(
+                #             qbar, (batch_size, length, gh, -1)).permute(0, 2, 1, 3)
+                #         kbar = torch.reshape(
+                #             kbar, (batch_size, length, gh, -1)).permute(0, 2, 1, 3)
+                #         code_shape = (gh, self.input_dim_global)
+                #         if self.gated:
+                #             ggate = self.gate_global
+                #         else:
+                #             ggate = None
+                #         q, k = apply_spe_pos_emb_factorised(
+                #             q, k, qbar, kbar, code_shape, ggate)
+                #         q, k = map(lambda t: t.permute(0, 1, 4, 2, 3), (q, k))
+                #         b, h, r_pe, l, r_f = q.shape
+                #         q, k = map(lambda t: t.reshape(
+                #             b, h * r_pe, l, r_f), (q, k))
+                #     else:
+                #         qbar = torch.reshape(
+                #             qbar, (batch_size, length, gh, self.input_dim_global, -1))
+                #         kbar = torch.reshape(
+                #             kbar, (batch_size, length, gh, self.input_dim_global, -1))
+                #         code_shape = (gh, self.input_dim_global)
+                #         if self.gated:
+                #             ggate = self.gate_global
+                #         else:
+                #             ggate = None
+                #         q, k = apply_spe_pos_emb_(
+                #             q, k, qbar, kbar, code_shape, ggate)
+                # else:
+                #     raise NotImplementedError
 
             if torch.any(torch.isnan(q)):
                 print('stop')
@@ -146,15 +192,11 @@ class Attention_(nn.Module):
                 print('stop')
 
             out, state = self.fast_attention(
-                q, k, v, kwargs['states'], kwargs['inferring_states'])
-            if self.PE_type == 'spe_factorized':
-                d_out = out.shape[-1]
-                out = out.reshape(b, h, r_pe, l, d_out).sum(2)
+                q, k, q_rot, k_rot, v, kwargs['states'], kwargs['inferring_states'])
             attn_outs.append(out)
 
         if not empty(lq):
             assert not cross_attend, 'local attention is not compatible with cross attention'
-
             # Apply layer PE to local attention ? Not implemented in original implem or performer, but why ?
             if self.local_layerPE:
                 if self.PE_type == 'rotary':
@@ -248,14 +290,9 @@ class FastAttention_(nn.Module):
         super().__init__()
         self.causal = causal
         if causal:
-            try:
-                import fast_transformers.causal_product.causal_product_cuda
-                self.causal_linear_fn = partial(causal_linear_attention)
-            except ImportError:
-                print('unable to import cuda code for auto-regressive Performer. will default to the memory inefficient non-cuda version')
-                self.causal_linear_fn = causal_linear_attention_noncuda
+            self.causal_linear_fn = partial(causal_linear_attention)
 
-    def forward(self, q, k, v, states, inferrring_states):
+    def forward(self, q, k, q_rot, k_rot, v, states, inferrring_states):
         """
         inputs are already feature mapped
         """
@@ -268,22 +305,25 @@ class FastAttention_(nn.Module):
                 out, states = infer_hidden_states(q, k, v)
             else:
                 attn_fn = linear_attention if not self.causal else self.causal_linear_fn
-                out = attn_fn(q, k, v)
+                out = attn_fn(q, k, q_rot, k_rot, v)
                 states = None
         return out, states
 
 
 # inefficient causal linear attention, without cuda code,
 # (used for parallel inference of hidden states in recurrent mode)
-def infer_hidden_states(q, k, v, chunk_size=128, eps=1e-6):
+def infer_hidden_states(q, k, q_rot, k_rot, v, chunk_size=128, eps=1e-6):
     last_k_cumsum = 0
     last_context_cumsum = 0
+    last_k_cumsum_rot = 0
     outs = []
     num_chunks = q.size(2) // chunk_size
-    for q, k, v in zip(*map(lambda t: t.chunk(num_chunks, dim=-2), (q, k, v))):
+    for q, k, q_rot, k_rot, v in zip(*map(lambda t: t.chunk(num_chunks, dim=-2), (q, k, q_rot, k_rot, v))):
         k_cumsum = last_k_cumsum + k.cumsum(dim=-2)
-        D_inv = 1. / torch.einsum('...nd,...nd->...n',
-                                  q, k_cumsum.type_as(q) + eps)
+        k_cumsum_rot = last_k_cumsum_rot + k_rot.cumsum(dim=-2)
+        D = torch.einsum('...nd,...nd->...n', q, k_cumsum.type_as(q))
+        D_rot = torch.einsum('...nd,...nd->...n', q_rot, k_cumsum_rot.type_as(q))
+        D_inv = 1. / (D + D_rot)
         context = torch.einsum('...nd,...ne->...nde', k, v)
         context_cumsum = last_context_cumsum + context.cumsum(dim=-3)
         out = torch.einsum('...nde,...nd,...n->...ne',
@@ -297,15 +337,117 @@ def infer_hidden_states(q, k, v, chunk_size=128, eps=1e-6):
     return out, states
 
 
-def recursive_attention_step(q, k, v, states, eps=1e-6):
+def recursive_attention_step(q, k, q_rot, k_rot, v, states, eps=1e-6):
     k_cumsum = states['Zs'].unsqueeze(2) + k
-    D_inv = 1. / torch.einsum('...nd,...nd->...n', q,
-                              k_cumsum.type_as(q) + eps)
+    k_cumsum_rot = states['Zs_rot'].unsqueeze(2) + k_rot
+    D = torch.einsum('...nd,...nd->...n', q,
+                     k_cumsum.type_as(q))
+    D_rot = torch.einsum('...nd,...nd->...n', q_rot,
+                         k_cumsum_rot.type_as(q_rot))
+    D_inv = 1. / (D + D_rot + eps)
+
     context = torch.einsum('...nd,...ne->...nde', k, v)
     context_cumsum = states['Ss'].unsqueeze(2) + context
+    context_rot = torch.einsum('...nd,...ne->...nde', k_rot, v)
+    context_cumsum_rot = states['Ss_rot'].unsqueeze(2) + context_rot
+
     out = torch.einsum('...nde,...nd,...n->...ne',
                        context_cumsum, q, D_inv)
+    out_rot = torch.einsum('...nde,...nd,...n->...ne',
+                           context_cumsum_rot, q_rot, D_inv)
+    out = out_rot + out
     last_k_cumsum = k_cumsum[:, :, 0]
+    last_k_cumsum_rot = k_cumsum_rot[:, :, 0]
     last_context_cumsum = context_cumsum[:, :, 0]
-    states = dict(Z=last_k_cumsum, S=last_context_cumsum)
+    last_context_cumsum_rot = context_cumsum_rot[:, :, 0]
+    states = dict(Z=last_k_cumsum, S=last_context_cumsum,
+                  Z_rot=last_k_cumsum_rot, S_rot=last_context_cumsum_rot)
     return out, states
+
+
+def get_D(q, k):
+    k_cumsum = k.cumsum(dim=-2)
+    D = torch.einsum('...nd,...nd->...n', q, k_cumsum.type_as(q))
+    return D
+
+
+def get_N(q, k, v):
+    from fast_transformers.causal_product import CausalDotProduct
+    autocast_enabled = torch.is_autocast_enabled()
+    is_half = isinstance(q, torch.cuda.HalfTensor)
+    assert not is_half or APEX_AVAILABLE, 'half tensors can only be used if nvidia apex is available'
+    cuda_context = null_context if not autocast_enabled else partial(
+        autocast, enabled=False)
+    causal_dot_product_fn = amp.float_function(
+        CausalDotProduct.apply) if is_half else CausalDotProduct.apply
+    with cuda_context():
+        if autocast_enabled:
+            q, k, v = map(
+                lambda t: t.float(), (q, k, v))
+        N = causal_dot_product_fn(q, k, v)
+    return N
+
+
+def causal_linear_attention(q, k, q_rot, k_rot, v, eps=1e-10):
+    N = (get_N(q, k, v) + get_N(q_rot, k_rot, v))
+    D_inv = 1. / (get_D(q, k) + get_D(q_rot, k_rot) + eps)
+    out = torch.einsum('...nd,...n->...nd', N, D_inv)
+    return out
+
+
+def get_pes(layer_pe_type, n_global_heads, n_local_heads, dim_layerPE, dim_layerPE_local, max_seq_len,
+            dataloader_generator, layer_pe_args):
+    layer_pos_emb_local = None
+    if layer_pe_type == 'index_rototor':
+        layer_pos_emb = Rototor(
+            dim=dim_layerPE)
+        if n_local_heads > 0:
+            layer_pos_emb_local = Rototor(
+                dim=dim_layerPE_local)
+        PE_type = 'rototor'
+    elif layer_pe_type == 'index_rotary':
+        raise NotImplementedError
+        layer_pos_emb = IndexPositionalEmbedding(
+            dim=dim_layerPE, max_seq_len=max_seq_len)
+        if n_local_heads > 0:
+            layer_pos_emb_local = IndexPositionalEmbedding(
+                dim=dim_layerPE_local, max_seq_len=max_seq_len)
+        PE_type = 'rotary'
+    elif layer_pe_type == 'elapsed_rotary':
+        raise NotImplementedError
+        layer_pos_emb = ElapsedPositionalEmbedding(
+            dim=dim_layerPE, dataloader_generator=dataloader_generator)
+        if n_local_heads > 0:
+            layer_pos_emb_local = ElapsedPositionalEmbedding(
+                dim=dim_layerPE_local, dataloader_generator=dataloader_generator)
+        PE_type = 'rotary'
+    elif layer_pe_type == 'index_spe':
+        raise NotImplementedError
+        num_sines = layer_pe_args['n_sines']
+        num_realizations = layer_pe_args['n_realizations']
+        num_local_head = n_local_heads
+        poscoder = SineSPE(num_heads=n_global_heads, in_features=dim_layerPE,
+                           num_sines=num_sines, num_realizations=num_realizations)
+        layer_pos_emb = poscoder
+        if n_local_heads > 0:
+            poscoder_local = SineSPE(num_heads=num_local_head, in_features=dim_layerPE_local,
+                                     num_sines=num_sines, num_realizations=num_realizations)
+            layer_pos_emb_local = poscoder_local
+        PE_type = 'spe'
+    elif layer_pe_type == 'index_spe_factorized':
+        raise NotImplementedError
+        layer_pe_args = layer_pe_args
+        num_sines = layer_pe_args['n_sines']
+        num_realizations = layer_pe_args['n_realizations']
+        num_local_head = n_local_heads
+        poscoder = SineSPEFactorized(
+            num_heads=n_global_heads, num_sines=num_sines, num_realizations=num_realizations)
+        layer_pos_emb = poscoder
+        if n_local_heads > 0:
+            poscoder_local = SineSPEFactorized(
+                num_heads=num_local_head, num_sines=num_sines, num_realizations=num_realizations)
+            layer_pos_emb_local = poscoder_local
+        PE_type = 'spe_factorized'
+    else:
+        raise NotImplementedError
+    return layer_pos_emb, layer_pos_emb_local, PE_type

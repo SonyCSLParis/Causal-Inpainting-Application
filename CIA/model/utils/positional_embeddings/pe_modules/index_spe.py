@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 
-class ElapsedSineSPE(nn.Module):
+class SineSPE(nn.Module):
     """
     code generator for sinusoidal stochastic positional encoding.
     Args:
@@ -21,7 +21,7 @@ class ElapsedSineSPE(nn.Module):
         num_realizations: int = 256,
         num_sines: int = 1
     ):
-        super(ElapsedSineSPE, self).__init__()
+        super(SineSPE, self).__init__()
 
         # saving dimensions
         self.num_heads = num_heads
@@ -51,7 +51,7 @@ class ElapsedSineSPE(nn.Module):
 
         self.code_shape = (num_heads, in_features)
 
-    def forward(self, x_embed, h, metadata_dict):
+    def forward(self, ):
         """
         Generate the code, composed of a random QBar and Kbar,
         depending on the parameters, and return them for use with a
@@ -59,15 +59,6 @@ class ElapsedSineSPE(nn.Module):
         Args:
             shape: The outer shape of the inputs: (batchsize, *size)
         """
-        # get shape of the queries. Here it's only 1d
-        max_len = x_embed.size(1)
-
-        # build omega_q and omega_k,
-        # with shape (num_heads, keys_dim, length, 2*num_sines)
-        TODO ICI REMPLACER INDICES PAR LES ELAPSED TIME
-        indices = torch.linspace(
-            0, max_len-1, max_len, device=self.freqs.device)
-
         # making sure the frequencies are in [0, 0.5]
         freqs = torch.sigmoid(self.freqs[:, :, None, :])/2.
 
@@ -77,7 +68,7 @@ class ElapsedSineSPE(nn.Module):
             + self.offsets[:, :, None, :]
         )
         omega_q = torch.stack([torch.cos(phases_q), torch.sin(phases_q)], dim=-1).view(
-            1, self.num_heads, self.in_features, max_len, 2*self.num_sines
+            1, self.num_heads, self.in_features, length, 2*self.num_sines
         )
 
         phases_k = (
@@ -85,7 +76,7 @@ class ElapsedSineSPE(nn.Module):
             * freqs * indices[None, None, :, None]
         )
         omega_k = torch.stack([torch.cos(phases_k), torch.sin(phases_k)], dim=-1).view(
-            1, self.num_heads, self.in_features, max_len, 2*self.num_sines
+            1, self.num_heads, self.in_features, length, 2*self.num_sines
         )
 
         # gains is (num_heads, keys_dim, num_sines). Making then nonnegative with softplus
@@ -100,7 +91,7 @@ class ElapsedSineSPE(nn.Module):
         z = torch.randn(
             1, self.num_heads, self.in_features, 2 * self.num_sines,
             self.num_realizations,
-            device=self.freqs.device) / math.sqrt(self.num_sines * 2)
+            device=x_embed.device) / math.sqrt(self.num_sines * 2)
 
         # scale each of the 2*num_sines by the appropriate gain
         # z is still (1, num_heads, keys_dim, 2*num_sines, num_realizations)
@@ -117,57 +108,9 @@ class ElapsedSineSPE(nn.Module):
 
         # final scaling
         scale = (self.num_realizations * self.in_features)**0.25
-        return (qbar/scale, kbar/scale)
-
-    def get_posattn_matrix(self, max_len=2048):
-        indices = torch.linspace(
-            0, max_len-1, max_len, device=self.freqs.device)
-
-        # making sure the frequencies are in [0, 0.5]
-        freqs = torch.sigmoid(self.freqs[:, :, None, :])/2.
-
-        phases_q = (
-            2 * math.pi
-            * freqs * indices[None, None, :, None]
-            + self.offsets[:, :, None, :]
-        )
-        omega_q = torch.stack([torch.cos(phases_q), torch.sin(phases_q)], dim=-1).view(
-            1, self.num_heads, self.in_features, max_len, 2*self.num_sines
-        )
-
-        phases_k = (
-            2 * math.pi
-            * freqs * indices[None, None, :, None]
-        )
-        omega_k = torch.stack([torch.cos(phases_k), torch.sin(phases_k)], dim=-1).view(
-            1, self.num_heads, self.in_features, max_len, 2*self.num_sines
-        )
-
-        # gains is (num_heads, keys_dim, 2*num_sines). Making then nonnegative with softplus
-        gains = nn.functional.softplus(self.gains)
-        # gains = gains / torch.sqrt(gains.norm(dim=-1, keepdim=True))
-        gains = torch.stack(
-            (gains, gains), dim=-1).view(
-                self.num_heads, self.in_features, 2*self.num_sines)
-
-        gains_squared_diag = torch.diag_embed(gains ** 2)
-
-        print('[get posattn matrix] Omega_q: {}, lambda: {}, Omega_k: {}'.format(
-            omega_q.size(), gains_squared_diag.size(), omega_k.size()
-        ))
-        # print (gains_squared_diag[0, 0])
-
-        # get (1, num_heads, keys_dim) attention maps, each of size (max_len, max_len)
-        omega_q_mult_gains_squared_diag = torch.einsum(
-            'ihdmk, hdku -> ihdmu',
-            omega_q, gains_squared_diag
-        )
-        pos_attn_matrices = torch.einsum(
-            'ihdmk, ihdnk -> ihdmn',
-            omega_q_mult_gains_squared_diag, omega_k
-        )
-        print('[get posattn matrix] pos_attn: {}'.format(
-            pos_attn_matrices.size()
-        ))
-
-        return pos_attn_matrices
+        qbar = torch.reshape(qbar/scale, (1, length, -1))
+        kbar = torch.reshape(kbar/scale, (1, length, -1))
+        qk_bar = torch.cat((qbar, kbar), -1)
+        # same for all elem in batch here since pos emb does not depend on content
+        qk_bar_batch = torch.cat(batch_size*[qk_bar])
+        return qk_bar_batch

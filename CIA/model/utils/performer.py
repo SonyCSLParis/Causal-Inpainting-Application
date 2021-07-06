@@ -1,3 +1,4 @@
+from CIA.dataloaders import dataloader
 from CIA.model.utils.execute_type.reversible_gated import ReversibleGatedSequence_
 from CIA.model.utils.execute_type.gated import GatedSequence_
 from CIA.model.utils.execute_type.reversible import ReversibleSequence_
@@ -38,7 +39,9 @@ class Performer_(nn.Module):
         auto_check_redraw=True,
         qkv_bias=False,
         attn_out_bias=False,
-        layer_pos_enc=None
+        layer_pe_type=None,
+        layer_pos_enc=None,
+        dataloader_generator=None
     ):
         super().__init__()
         local_attn_heads = cast_tuple(local_attn_heads)
@@ -52,7 +55,8 @@ class Performer_(nn.Module):
                                      nb_features, feature_redraw_interval, execute_type, ff_chunks,
                                      generalized_attention, kernel_fn, use_scalenorm, use_rezero, ff_glu, ff_dropout,
                                      attn_dropout, cross_attend, no_projection, auto_check_redraw,
-                                     qkv_bias, attn_out_bias, layer_pos_enc)
+                                     qkv_bias, attn_out_bias, layer_pe_type, layer_pos_enc,
+                                     max_seq_len, dataloader_generator)
 
     def check_redraw_projections(self):
         self.performer.check_redraw_projections()
@@ -60,12 +64,12 @@ class Performer_(nn.Module):
     def fix_projection_matrices_(self):
         self.performer.fix_projection_matrices_()
 
-    def forward(self, x, layer_pos_emb, layer_pos_emb_local, **kwargs):
+    def forward(self, x, pos_emb_input, **kwargs):
         b, n, d = x.shape
         assert n <= self.max_seq_len, f'sequence length {n} must be less than \
             the max sequence length {self.max_seq_len}'
         x = self.dropout(x)
-        out = self.performer(x, pos_emb=layer_pos_emb, local_pos_emb=layer_pos_emb_local, **kwargs)
+        out = self.performer(x, pos_emb_input=pos_emb_input, **kwargs)
         # pre-softmax norm (improve training stability)
         out['x'] = self.norm(out['x'])
         return out
@@ -97,7 +101,10 @@ class _Performer_(nn.Module):
         auto_check_redraw=True,
         qkv_bias=True,
         attn_out_bias=True,
-        layer_pos_enc=None
+        layer_pe_type=None,
+        layer_pos_enc=None,
+        max_seq_len=None,
+        dataloader_generator=None
     ):
         super().__init__()
         dim_head = dim // heads
@@ -125,7 +132,8 @@ class _Performer_(nn.Module):
                                           generalized_attention=generalized_attention, kernel_fn=kernel_fn,
                                           dropout=attn_dropout, no_projection=no_projection,
                                           qkv_bias=qkv_bias, attn_out_bias=attn_out_bias,
-                                          layer_pos_enc=layer_pos_enc)),
+                                          layer_pe_type=layer_pe_type, layer_pos_enc=layer_pos_enc,
+                                          max_seq_len=max_seq_len, dataloader_generator=dataloader_generator)),
                 wrapper_fn(Chunk(ff_chunks, FeedForward(
                     dim, mult=ff_mult, dropout=ff_dropout, glu=ff_glu), along_dim=1))
             ]))
@@ -157,7 +165,7 @@ class _Performer_(nn.Module):
 
         route_attn = ((True, False),) * depth * (2 if cross_attend else 1)
         route_context = ((False, False), (True, False)) * depth
-        attn_route_map = {'mask': route_attn, 'pos_emb': route_attn, 'local_pos_emb': route_attn,
+        attn_route_map = {'mask': route_attn, 'pos_emb_input': route_attn,
                           'inferring_states': route_attn, 'states': route_attn}
         context_route_map = {'context': route_context,
                              'context_mask': route_context} if cross_attend else {}

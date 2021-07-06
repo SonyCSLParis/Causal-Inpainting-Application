@@ -1,3 +1,4 @@
+import math
 from einops import rearrange, repeat
 import torch
 
@@ -9,16 +10,30 @@ def rotate_every_two_(x):
     return rearrange(x, '... d j -> ... (d j)')
 
 
+def apply_rototor_pos_emb_(x, pos_emb):
+    cos, sin = pos_emb.unbind(dim=-1)
+    cos_emb, sin_emb = map(lambda t: t * x, (cos, sin))
+    b, h, l, d = sin_emb.shape
+    # x_embed represents rotated x grouped by 2. Hence dim(x_embed) = 2 * dim(x)
+    x_embed = torch.stack((cos_emb, sin_emb), dim=-1).view(b, h, l, d * 2)
+    return x_embed
+
+
 def apply_rotary_pos_emb_(q, k, sinu_pos):
-    sinu_pos = rearrange(sinu_pos, 'b n (j d) -> b n j d', j=2)
-    sin, cos = sinu_pos.unbind(dim=-2)
-    sin, cos = map(lambda t: repeat(t, 'b t n -> b t (n j)', j=2), (sin, cos))
-    # TODO: use same positional embeddings for all heads ?? perhaps can be changed when parametrising thetas
+    sin, cos = sinu_pos.unbind(dim=-1)
     sin_heads, cos_heads = map(lambda t: t.unsqueeze(
         1), (sin, cos))  # unsqueeze for head dim
-    q, k = map(lambda t: (t * cos_heads) +
-               (rotate_every_two_(t) * sin_heads), (q, k))
-    return q, k
+    # use the first angle with theta = 0 to normalise
+    d = sin.size(-1)
+    sum_sqrt_lambda = math.sqrt(d-1)
+    cos_heads[:, :, :, -1] = cos_heads[:, :, :, -1] * sum_sqrt_lambda
+    # sin_heads, cos_heads: (b, h, l, n_sines)
+    # q, k: (b, h, l, r)
+    q_cos, k_cos = map(lambda t: (t[:, :, :, :, None] * cos_heads[:, :, :, None, :]), (q, k))
+    q_sin, k_sin = map(lambda t: (t[:, :, :, :, None] * sin_heads[:, :, :, None, :]), (q, k))
+    q_rot = torch.stack([q_cos, q_sin], dim=-1)
+    k_rot = torch.stack([k_cos, k_sin], dim=-1)
+    return q_rot, k_rot
 
 
 def apply_rotary_pos_emb_upsampled(q, k, sinu_pos):

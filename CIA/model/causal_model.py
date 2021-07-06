@@ -1,4 +1,5 @@
 
+from CIA.model.utils.positional_embeddings.get_pe_input import get_pe_input
 from CIA.positional_embeddings.positional_embedding import PositionalEmbedding
 from torch import nn
 from CIA.data_processors import DataProcessor
@@ -18,8 +19,10 @@ class CausalModel(nn.Module):
                  num_events_decoder,
                  label_smoothing,
                  transformer,
-                 layer_pos_emb,
-                 layer_pos_emb_local):
+                 pe_input_type,
+                 #  layer_pos_emb,
+                 #  layer_pos_emb_local)
+                 ):
         super(CausalModel, self).__init__()
         self.data_processor = data_processor
         # can be useful
@@ -37,8 +40,9 @@ class CausalModel(nn.Module):
         ######################################################
         # Input and layer embeddings
         self.positional_embedding = positional_embedding
-        self.layer_pos_emb = layer_pos_emb
-        self.layer_pos_emb_local = layer_pos_emb_local
+        # self.layer_pos_emb = layer_pos_emb
+        # self.layer_pos_emb_local = layer_pos_emb_local
+        self.pe_input_type = pe_input_type
         # linear to model dim
         self.linear_target = nn.Linear(
             self.data_processor.embedding_size +
@@ -69,13 +73,11 @@ class CausalModel(nn.Module):
             target_seq, i=0, h=h_pe_init, metadata_dict=metadata_dict)
         target_seq = self.linear_target(target_seq)
 
-        # compute layer positional embeddings
-        if self.layer_pos_emb is not None:
-            layer_pos_emb = self.layer_pos_emb(
-                x_embed=target_seq, h=h_pe_init, metadata_dict=metadata_dict)
-        if self.layer_pos_emb_local is not None:
-            layer_pos_emb_local = self.layer_pos_emb_local(
-                x_embed=target_seq, h=h_pe_init, metadata_dict=metadata_dict)
+        # compute input to layer positional embeddings
+        if self.pe_input_type is not None:
+            layer_pos_emb_input = get_pe_input(dataloader_generator=self.dataloader_generator,
+                                               x_embed=target_seq, h=h_pe_init, metadata_dict=metadata_dict,
+                                               pe_input_type=self.pe_input_type)
 
         # shift target_seq by one
         dummy_input_target = self.sos_embedding(metadata_dict).unsqueeze(1)
@@ -87,27 +89,19 @@ class CausalModel(nn.Module):
             dim=1)
         target_seq = target_seq[:, :-1]
 
-        if self.layer_pos_emb is not None:
+        if self.pe_input_type is not None:
             # For dummy input on layer positional attention, we can simply repeat the first embedding
             # which corresponds either to position 0 or elapsed time 0
-            layer_pos_emb = torch.cat(
+            layer_pos_emb_input = torch.cat(
                 [
-                    layer_pos_emb[:, 0:1, :],
-                    layer_pos_emb
+                    layer_pos_emb_input[:, 0:1],
+                    layer_pos_emb_input
                 ],
                 dim=1)
-            layer_pos_emb = layer_pos_emb[:, :-1]
-        if self.layer_pos_emb_local is not None:
-            layer_pos_emb_local = torch.cat(
-                [
-                    layer_pos_emb_local[:, 0:1, :],
-                    layer_pos_emb_local
-                ],
-                dim=1)
-            layer_pos_emb_local = layer_pos_emb_local[:, :-1]
+            layer_pos_emb_input = layer_pos_emb_input[:, :-1]
         else:
-            layer_pos_emb_local = None
-        return target_seq, layer_pos_emb, layer_pos_emb_local, h_pe
+            layer_pos_emb_input = None
+        return target_seq, layer_pos_emb_input, h_pe
 
     def forward(self, target, metadata_dict, h_pe_init=None):
         """
@@ -117,12 +111,12 @@ class CausalModel(nn.Module):
         batch_size, _, _ = target.size()
         target_embedded = self.data_processor.embed(target)
         target_seq = flatten(target_embedded)
-        target_seq, layer_pos_emb, layer_pos_emb_local, h_pe = self.prepare_sequence(
+        target_seq, layer_pos_emb_input, h_pe = self.prepare_sequence(
             target_seq, metadata_dict, h_pe_init)
 
         # forward pass
         out = self.transformer(
-            target_seq, layer_pos_emb=layer_pos_emb, layer_pos_emb_local=layer_pos_emb_local,
+            target_seq, pos_emb_input=layer_pos_emb_input,
             inferring_states=False, states=None)
         output = out['x']
         output = output.view(batch_size,
