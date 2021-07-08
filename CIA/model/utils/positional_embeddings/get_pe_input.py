@@ -33,8 +33,8 @@ def get_pe_input(dataloader_generator, x_embed, h, metadata_dict, pe_input_type)
                 elapsed_time[:, metadata_dict['decoding_start']].unsqueeze(1)
             )
         # TODO scale?! only 10?!
-        elapsed_time = elapsed_time * 100
-        h = h * 100
+        # elapsed_time = elapsed_time * 100
+        # h = h * 100
         elapsed_time_channelized = elapsed_time.repeat_interleave(num_channels, dim=1)
         pe_input = elapsed_time_channelized
     return pe_input

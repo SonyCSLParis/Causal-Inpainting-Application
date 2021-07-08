@@ -192,7 +192,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
 
     if decoder_kwargs['layer_pe'] in ['index_rototor', 'index_rotary', 'index_spe', 'index_spe_factorized']:
         pe_input_type = 'index'
-    elif decoder_kwargs['layer_pe'] in ['elapsed_rotary']:
+    elif decoder_kwargs['layer_pe'] in ['elapsed_rotary', 'elapsed_rototor']:
         pe_input_type = 'elapsed_time'
     else:
         raise NotImplementedError

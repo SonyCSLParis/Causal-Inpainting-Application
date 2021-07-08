@@ -1,3 +1,4 @@
+from CIA.model.utils.positional_embeddings.pe_modules.elapsed_rototor import ElapsedRototor
 from CIA.model.utils.positional_embeddings.pe_modules.index_rototor import Rototor
 from CIA.model.utils.positional_embeddings.pe_modules.index_spe_factorized import SineSPEFactorized
 from CIA.model.utils.positional_embeddings.pe_modules.index_spe import SineSPE
@@ -417,6 +418,13 @@ def get_pes(layer_pe_type, n_global_heads, n_local_heads, dim_layerPE, dim_layer
             dim=dim_layerPE)
         if n_local_heads > 0:
             layer_pos_emb_local = Rototor(
+                dim=dim_layerPE_local)
+        PE_type = 'rototor'
+    elif layer_pe_type == 'elapsed_rototor':
+        layer_pos_emb = ElapsedRototor(
+            dim=dim_layerPE)
+        if n_local_heads > 0:
+            layer_pos_emb_local = ElapsedRototor(
                 dim=dim_layerPE_local)
         PE_type = 'rototor'
     elif layer_pe_type == 'index_rotary':
