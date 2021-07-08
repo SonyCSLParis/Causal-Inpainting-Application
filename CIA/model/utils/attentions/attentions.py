@@ -299,10 +299,10 @@ class FastAttention_(nn.Module):
         if states is not None:
             assert q.size(
                 2) == 1, 'recurrent inference can only be applied to sequences of len 1'
-            out, states = recursive_attention_step(q, k, v, states)
+            out, states = recursive_attention_step(q, k, q_rot, k_rot, v, states)
         else:
             if inferrring_states:
-                out, states = infer_hidden_states(q, k, v)
+                out, states = infer_hidden_states(q, k, q_rot, k_rot, v)
             else:
                 attn_fn = linear_attention if not self.causal else self.causal_linear_fn
                 out = attn_fn(q, k, q_rot, k_rot, v)
@@ -316,24 +316,38 @@ def infer_hidden_states(q, k, q_rot, k_rot, v, chunk_size=128, eps=1e-6):
     last_k_cumsum = 0
     last_context_cumsum = 0
     last_k_cumsum_rot = 0
+    last_context_cumsum_rot = 0
     outs = []
     num_chunks = q.size(2) // chunk_size
     for q, k, q_rot, k_rot, v in zip(*map(lambda t: t.chunk(num_chunks, dim=-2), (q, k, q_rot, k_rot, v))):
         k_cumsum = last_k_cumsum + k.cumsum(dim=-2)
-        k_cumsum_rot = last_k_cumsum_rot + k_rot.cumsum(dim=-2)
         D = torch.einsum('...nd,...nd->...n', q, k_cumsum.type_as(q))
-        D_rot = torch.einsum('...nd,...nd->...n', q_rot, k_cumsum_rot.type_as(q))
-        D_inv = 1. / (D + D_rot)
+        k_cumsum_rot = last_k_cumsum_rot + k_rot.cumsum(dim=-2)
+        D_rot = torch.einsum('...nd,...nd->...n', q_rot,
+                             k_cumsum_rot.type_as(q_rot))
+        D_inv = 1. / (D + D_rot + eps)
+
         context = torch.einsum('...nd,...ne->...nde', k, v)
         context_cumsum = last_context_cumsum + context.cumsum(dim=-3)
+        context_rot = torch.einsum('...nd,...ne->...nde', k_rot, v)
+        context_cumsum_rot = last_context_cumsum_rot + \
+            context_rot.cumsum(dim=-3)
+
         out = torch.einsum('...nde,...nd,...n->...ne',
                            context_cumsum, q, D_inv)
+        out_rot = torch.einsum('...nde,...nd,...n->...ne',
+                               context_cumsum_rot, q_rot, D_inv)
+        out = out + out_rot
+
         last_k_cumsum = k_cumsum[:, :, -1:]
         last_context_cumsum = context_cumsum[:, :, -1:]
+        last_k_cumsum_rot = k_cumsum_rot[:, :, -1:]
+        last_context_cumsum_rot = context_cumsum_rot[:, :, -1:]
         outs.append(out)
 
     out = torch.cat(outs, dim=-2)
-    states = dict(Z=last_k_cumsum.squeeze(2), S=last_context_cumsum.squeeze(2))
+    states = dict(Z=last_k_cumsum.squeeze(2), S=last_context_cumsum.squeeze(2),
+                  Z_rot=last_k_cumsum_rot.squeeze(2), S_rot=last_context_cumsum_rot.squeeze(2))
     return out, states
 
 

@@ -66,7 +66,9 @@ class _ReversibleFunction_(Function):
         states = []
         for layer_ind, (block, kwarg) in enumerate(zip(blocks, args)):
             # extract the states for the current layer
-            f_args_layer = {k: (dict(Zs=v['Zs'][:, :, :, layer_ind], Ss=v['Ss'][:, :, :, :, layer_ind]) if
+            f_args_layer = {k: (dict(Zs=v['Zs'][:, :, :, layer_ind], Ss=v['Ss'][:, :, :, :, layer_ind],
+                                     Zs_rot=v['Zs_rot'][:, :, :, layer_ind],
+                                     Ss_rot=v['Ss_rot'][:, :, :, :, layer_ind]) if
                                 (k == 'states' and v is not None) else v) for k, v in kwarg['f_args'].items()}
             kwargs_layer = dict(f_args=f_args_layer, g_args=kwarg['g_args'])
             x, state = block(x, **kwargs_layer)
@@ -78,18 +80,22 @@ class _ReversibleFunction_(Function):
         if len(states) > 0:
             Zs = torch.stack([st['Z'] for st in states], dim=-1)
             Ss = torch.stack([st['S'] for st in states], dim=-1)
+            Zs_rot = torch.stack([st['Z_rot'] for st in states], dim=-1)
+            Ss_rot = torch.stack([st['S_rot'] for st in states], dim=-1)
         else:
             Zs = torch.zeros_like(x)
             Ss = torch.zeros_like(x)
-        return x, Zs, Ss
+            Zs_rot = torch.zeros_like(x)
+            Ss_rot = torch.zeros_like(x)
+        return x, Zs, Ss, Zs_rot, Ss_rot
 
     @staticmethod
-    def backward(ctx, dy, dz, ds):
+    def backward(ctx, dy, dz, ds, dz_rot, ds_rot):
         y = ctx.y
         args = ctx.args
         for block, kwargs in zip(ctx.blocks[::-1], args[::-1]):
             y, dy = block.backward_pass(y, dy, **kwargs)
-        return dy, None, None
+        return dy, None, None, None, None
 
 
 class ReversibleSequence_(nn.Module):
@@ -105,6 +111,6 @@ class ReversibleSequence_(nn.Module):
         blocks = self.blocks
         args = route_args(self.args_route, kwargs, len(blocks))
         args = list(map(lambda x: {'f_args': x[0], 'g_args': x[1]}, args))
-        x, Zs, Ss = _ReversibleFunction_.apply(x, blocks, args)
+        x, Zs, Ss, Zs_rot, Ss_rot = _ReversibleFunction_.apply(x, blocks, args)
         x = torch.stack(x.chunk(2, dim=-1)).sum(dim=0)
-        return x, Zs, Ss
+        return x, Zs, Ss, Zs_rot, Ss_rot

@@ -187,5 +187,5 @@ class _Performer_(nn.Module):
     def forward(self, x, **kwargs):
         if self.auto_check_redraw:
             self.proj_updater.redraw_projections()
-        x, Zs, Ss = self.net(x, **kwargs)
-        return dict(x=x, Zs=Zs, Ss=Ss)
+        x, Zs, Ss, Zs_rot, Ss_rot = self.net(x, **kwargs)
+        return dict(x=x, Zs=Zs, Ss=Ss, Zs_rot=Zs_rot, Ss_rot=Ss_rot)

@@ -205,12 +205,11 @@ class CausalModel(nn.Module):
         """
         target_embedded = self.data_processor.embed(target)
         target_seq = flatten(target_embedded)
-        target_seq, layer_pos_emb, layer_pos_emb_local, _ = self.prepare_sequence(
+        target_seq, layer_pos_emb_input, h_pe = self.prepare_sequence(
             target_seq, metadata_dict, h_pe_init=None)
 
         out = self.transformer(
-            target_seq, layer_pos_emb=layer_pos_emb, layer_pos_emb_local=layer_pos_emb_local,
-            inferring_states=False, states=None)
+            target_seq, pos_emb_input=layer_pos_emb_input, inferring_states=False, states=None)
 
         # softmax
         output = out['x'][:, i, :]
@@ -228,14 +227,10 @@ class CausalModel(nn.Module):
         target_seq = flatten(target_embedded)
         target_seq, layer_pos_emb, h_pe = self.prepare_sequence(
             target_seq, metadata_dict, h_pe_init=None)
-        # +1 stand for dummy inputs
-        raise Exception('POUrQUOI IL NY A PAS DE LAYER POS ICI ????')
-        # out = self.transformer(
-        #     target_seq[:, :decoding_start_index +
-        #                1], layer_pos_emb=layer_pos_emb[:, :decoding_start_index+1],
-        #                layer_pos_emb, layer_pos_emb_local
-        #     inferring_states=True, states=None)
-
+        out = self.transformer(
+            target_seq[:, :decoding_start_index + 1],
+            pos_emb_input=layer_pos_emb[:, :decoding_start_index+1],
+            inferring_states=True, states=None)
         # softmax
         # prediction for time_index decoding_start_index
         out_x = out['x'][:, -1]
@@ -245,7 +240,9 @@ class CausalModel(nn.Module):
             'loss': None,
             'weights': weights,
             'Zs': out['Zs'],
-            'Ss': out['Ss']
+            'Ss': out['Ss'],
+            'Zs_rot': out['Zs_rot'],
+            'Ss_rot': out['Ss_rot']
         }
 
     def recurrent_step(self, target, metadata_dict, states, decoding_index):
@@ -257,7 +254,7 @@ class CausalModel(nn.Module):
         # bbb = time.time()
         out = self.transformer(
             target_seq[:, decoding_index:decoding_index+1],
-            layer_pos_emb=layer_pos_emb[:, decoding_index:decoding_index+1],
+            pos_emb_input=layer_pos_emb[:, decoding_index:decoding_index+1],
             inferring_states=False, states=states)
         # softmax
         # prediction for time_index decoding_start_index
@@ -271,5 +268,7 @@ class CausalModel(nn.Module):
             'loss': None,
             'weights': weights,
             'Zs': out['Zs'],
-            'Ss': out['Ss']
+            'Ss': out['Ss'],
+            'Zs_rot': out['Zs_rot'],
+            'Ss_rot': out['Ss_rot']
         }

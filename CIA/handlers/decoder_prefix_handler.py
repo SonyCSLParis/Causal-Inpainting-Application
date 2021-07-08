@@ -190,7 +190,7 @@ class DecoderPrefixHandler(Handler):
 
         # get hidden states
         out = self.model.module.infer_hidden_states(x, metadata_dict, decoding_start_index)
-        states = dict(Zs=out['Zs'], Ss=out['Ss'])
+        states = dict(Zs=out['Zs'], Ss=out['Ss'], Zs_rot=out['Zs_rot'], Ss_rot=out['Ss_rot'])
 
         with torch.no_grad():
             # i corresponds to the position of the token BEING generated
