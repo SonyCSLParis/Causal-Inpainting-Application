@@ -422,10 +422,21 @@ def get_pes(layer_pe_type, n_global_heads, n_local_heads, dim_layerPE, dim_layer
         PE_type = 'rototor'
     elif layer_pe_type == 'elapsed_rototor':
         layer_pos_emb = ElapsedRototor(
-            dim=dim_layerPE)
+            dim=dim_layerPE,
+            fix=False)
         if n_local_heads > 0:
             layer_pos_emb_local = ElapsedRototor(
-                dim=dim_layerPE_local)
+                dim=dim_layerPE_local,
+                fix=False)
+        PE_type = 'rototor'
+    elif layer_pe_type == 'elapsed_rototor_fix':
+        layer_pos_emb = ElapsedRototor(
+            dim=dim_layerPE,
+            fix=True)
+        if n_local_heads > 0:
+            layer_pos_emb_local = ElapsedRototor(
+                dim=dim_layerPE_local,
+                fix=True)
         PE_type = 'rototor'
     elif layer_pe_type == 'index_rotary':
         raise NotImplementedError

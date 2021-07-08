@@ -64,7 +64,7 @@ config = {
         label_smoothing=False,
         n_features=32,  # in FAVOR+
         execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
-        layer_pe='elapsed_rototor',  # 'index_rotary', 'elapsed_rotary', 'index_spe', 'index_spe_factorized:
+        layer_pe='elapsed_rototor_fix',  # 'index_rotary', 'elapsed_rotary', 'index_spe', 'index_spe_factorized:
         layer_pe_args=dict(n_sines=2, n_realizations=4),
         gated_layerSPE=False,
         local_layerPE=False,
@@ -74,7 +74,7 @@ config = {
     # ======== Training ========
     'lr':                          1e-4,
     'batch_size':                  16,
-    'num_batches':                 256,
+    'num_batches':                 128,
     'num_epochs':                  2000,
 
     # ======== model ID ========
