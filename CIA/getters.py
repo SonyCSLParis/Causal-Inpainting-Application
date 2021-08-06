@@ -19,7 +19,15 @@ def get_dataloader_generator(dataset, dataloader_generator_kwargs):
         return PianoDataloaderGenerator(
             sequences_size=dataloader_generator_kwargs['sequences_size'],
             transformations=dataloader_generator_kwargs['transformations'],
-            pad_before=dataloader_generator_kwargs['pad_before']
+            pad_before=dataloader_generator_kwargs['pad_before'],
+            num_elements=None
+        )
+    elif dataset.lower() == 'piano_test':
+        return PianoDataloaderGenerator(
+            sequences_size=dataloader_generator_kwargs['sequences_size'],
+            transformations=dataloader_generator_kwargs['transformations'],
+            pad_before=dataloader_generator_kwargs['pad_before'],
+            num_elements=100
         )
     elif dataset.lower() == 'nes':
         return NESDataloader(
@@ -143,12 +151,19 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
     num_channels_decoder = data_processor.num_channels
     num_events_decoder = data_processor.num_events
     max_seq_len = data_processor.num_tokens
-    post_phi_layerPE = decoder_kwargs['post_phi_layerPE']
-    # if post_phi_layerPE:
-    #     dim_layerPE = decoder_kwargs['n_features']
-    # else:
-    dim_layerPE = decoder_kwargs['d_model'] // decoder_kwargs['n_head']
-    dim_layerPE_local = decoder_kwargs['d_model'] // decoder_kwargs['n_head']
+    features = decoder_kwargs['features']
+    layer_pe = decoder_kwargs['layer_pe']
+    if layer_pe is not None:
+        layer_pe_args = layer_pe['args']
+        post_phi_layerPE = layer_pe_args['post_phi_layerPE']
+        if post_phi_layerPE and (features['type'] == 'favor'):
+            dim_layerPE = features['args']['n_features']
+        else:
+            dim_layerPE = decoder_kwargs['d_model'] // decoder_kwargs['n_head']
+        layer_pe['args']['input_dim'] = dim_layerPE
+        pe_input_type = layer_pe['input']
+    else:
+        pe_input_type = None
 
     transformer = Performer_(
         max_seq_len=max_seq_len,    # max sequence length
@@ -157,7 +172,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         heads=decoder_kwargs['n_head'],                 # heads
         causal=True,                  # auto-regressive or not
         # number of random features, if not set, will default to (d * log(d)), where d is the dimension of each head
-        nb_features=decoder_kwargs['n_features'],
+        features=features,
         # how frequently to redraw the projection matrix, the more frequent, the slower the training
         feature_redraw_interval=1000,
         # defaults to softmax approximation, but can be set to True for generalized attention
@@ -177,25 +192,9 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         # No local attention. With: decoder_kwargs['n_head']//2 ??
         local_attn_heads=decoder_kwargs['local_attn_heads'],
         local_window_size=256,        # window size of local attention,
-        layer_pe_type=decoder_kwargs['layer_pe'],
-        layer_pos_enc={
-            'gated_layerSPE': decoder_kwargs['gated_layerSPE'],
-            'local_layerPE': decoder_kwargs['local_layerPE'],
-            'post_phi_layerPE': decoder_kwargs['post_phi_layerPE'],
-            'input_dim_global': dim_layerPE,
-            'input_dim_local': dim_layerPE_local,
-            'upsampled_layerPE': decoder_kwargs['upsampled_layerPE'],
-            'layer_pe_args': decoder_kwargs['layer_pe_args'],
-        },
+        layer_pe=layer_pe,
         dataloader_generator=dataloader_generator
     )
-
-    if decoder_kwargs['layer_pe'] in ['index_rototor', 'index_rotary', 'index_spe', 'index_spe_factorized']:
-        pe_input_type = 'index'
-    elif decoder_kwargs['layer_pe'] in ['elapsed_rotary', 'elapsed_rototor', 'elapsed_rototor_fix']:
-        pe_input_type = 'elapsed_time'
-    else:
-        raise NotImplementedError
 
     decoder = CausalModel(
         data_processor=data_processor,

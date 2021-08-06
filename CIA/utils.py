@@ -4,7 +4,6 @@ import torch
 from matplotlib.ticker import NullFormatter
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from torch import nn
-from torch.distributions import Normal, kl_divergence
 import torch.distributed as dist
 
 
@@ -15,8 +14,10 @@ def cuda_variable(tensor, non_blocking=False):
     else:
         return tensor
 
+
 def is_main_process():
     return dist.get_rank() == 0
+
 
 def all_reduce_scalar(scalar, average=True):
     t = torch.Tensor([scalar]).to(f'cuda:{dist.get_rank()}')
@@ -107,7 +108,7 @@ def categorical_crossentropy(value, target, mask=None, label_smoothing=False):
             one_hot = torch.zeros_like(probs).scatter(1, tgt.view(-1, 1), 1)
             one_hot = (one_hot * (1 - eps) +
                        (1 - one_hot) * eps / (num_tokens_of_channel - 1)
-            )
+                       )
             log_prb = nn.functional.log_softmax(probs, dim=1)
             ce = -(one_hot * log_prb).sum(dim=1)
         sum = sum + ce.sum()
@@ -171,7 +172,7 @@ def quantization_loss(loss_quantization_left, loss_quantization_negative,
         loss_quantization_right.sum(2).sum(1),
         loss_quantization_negative.sum(4).sum(3).sum(2).sum(1),
     ),
-                                  dim=0).mean()
+        dim=0).mean()
     return loss_quantization
 
 
@@ -181,7 +182,7 @@ def quantization_loss_no_negative(loss_quantization_left,
         loss_quantization_left.sum(2).sum(1),
         loss_quantization_right.sum(2).sum(1),
     ),
-                                  dim=0).mean()
+        dim=0).mean()
     return loss_quantization
 
 

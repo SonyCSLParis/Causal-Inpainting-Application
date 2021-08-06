@@ -2,7 +2,7 @@ from pathlib import Path
 
 config = {
     'training_method':             'decoder',
-    'dataset':                     'piano',
+    'dataset':                     'piano_test',  # 'piano', 'piano_test'
 
     # --- Dataloader ---
     'dataloader_generator_kwargs': dict(
@@ -16,7 +16,8 @@ config = {
     ),  # Can be different from the encoder's data loader
 
     # --- DataProcessor ---
-    'data_processor_type':         'piano_prefix',  # can be used to filter out some channels
+    # can be used to filter out some channels
+    'data_processor_type':         'piano_prefix',
     'data_processor_kwargs':       dict(
         embedding_size=64,
         num_events_before=256,
@@ -62,20 +63,31 @@ config = {
         num_decoder_layers=16,
         dropout=0.1,
         label_smoothing=False,
-        n_features=32,  # in FAVOR+
-        execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
-        layer_pe='elapsed_rototor_fix',  # 'index_rotary', 'elapsed_rotary', 'index_spe', 'index_spe_factorized:
-        layer_pe_args=dict(n_sines=2, n_realizations=4),
-        gated_layerSPE=False,
-        local_layerPE=False,
-        post_phi_layerPE=True,
-        upsampled_layerPE=False,  # CLEAN: remove
+        features={
+            'type': 'elu',  # 'favor', 'elu'
+            # 'args': dict(n_features=32),  # 'favor args
+            'args': dict(),  # elu args
+        },
+        # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
+        execute_type='reversible',
+        # layer_pe=None
+        layer_pe=dict(
+            type='rototor',  # 'rotary', 'spe', 'rototor', 'rototor_fix'
+            input='elapsed',  # 'index', 'elapsed'
+            args=dict(
+                # n_sines=2,
+                # n_realizations=4,
+                gated_layerSPE=False,
+                post_phi_layerPE=True,
+                theta_q=True,
+            )
+        )
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  16,
-    'num_batches':                 128,
-    'num_epochs':                  2000,
+    'batch_size':                  8,
+    'num_batches':                 32,
+    'num_epochs':                  500,
 
     # ======== model ID ========
     'timestamp':                   None,

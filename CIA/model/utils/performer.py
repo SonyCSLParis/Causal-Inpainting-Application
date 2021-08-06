@@ -1,3 +1,4 @@
+from numpy import log
 from CIA.dataloaders import dataloader
 from CIA.model.utils.execute_type.reversible_gated import ReversibleGatedSequence_
 from CIA.model.utils.execute_type.gated import GatedSequence_
@@ -22,7 +23,7 @@ class Performer_(nn.Module):
         local_window_size=256,
         causal=False,
         ff_mult=4,
-        nb_features=None,
+        features=None,
         feature_redraw_interval=1000,
         execute_type=None,
         ff_chunks=1,
@@ -39,8 +40,7 @@ class Performer_(nn.Module):
         auto_check_redraw=True,
         qkv_bias=False,
         attn_out_bias=False,
-        layer_pe_type=None,
-        layer_pos_enc=None,
+        layer_pe=None,
         dataloader_generator=None
     ):
         super().__init__()
@@ -52,11 +52,10 @@ class Performer_(nn.Module):
         self.norm = nn.LayerNorm(dim)
 
         self.performer = _Performer_(dim, depth, heads, local_attn_heads, local_window_size, causal, ff_mult,
-                                     nb_features, feature_redraw_interval, execute_type, ff_chunks,
+                                     features, feature_redraw_interval, execute_type, ff_chunks,
                                      generalized_attention, kernel_fn, use_scalenorm, use_rezero, ff_glu, ff_dropout,
                                      attn_dropout, cross_attend, no_projection, auto_check_redraw,
-                                     qkv_bias, attn_out_bias, layer_pe_type, layer_pos_enc,
-                                     max_seq_len, dataloader_generator)
+                                     qkv_bias, attn_out_bias, layer_pe, max_seq_len, dataloader_generator)
 
     def check_redraw_projections(self):
         self.performer.check_redraw_projections()
@@ -85,7 +84,7 @@ class _Performer_(nn.Module):
         local_window_size=256,
         causal=False,
         ff_mult=4,
-        nb_features=None,
+        features=None,
         feature_redraw_interval=1000,
         execute_type=None,
         ff_chunks=1,
@@ -101,8 +100,7 @@ class _Performer_(nn.Module):
         auto_check_redraw=True,
         qkv_bias=True,
         attn_out_bias=True,
-        layer_pe_type=None,
-        layer_pos_enc=None,
+        layer_pe=None,
         max_seq_len=None,
         dataloader_generator=None
     ):
@@ -128,12 +126,12 @@ class _Performer_(nn.Module):
         for _, local_heads in zip(range(depth), local_attn_heads):
             layers.append(nn.ModuleList([
                 wrapper_fn(SelfAttention_(dim, causal=causal, heads=heads, dim_head=dim_head, local_heads=local_heads,
-                                          local_window_size=local_window_size, nb_features=nb_features,
+                                          local_window_size=local_window_size, features=features,
                                           generalized_attention=generalized_attention, kernel_fn=kernel_fn,
                                           dropout=attn_dropout, no_projection=no_projection,
                                           qkv_bias=qkv_bias, attn_out_bias=attn_out_bias,
-                                          layer_pe_type=layer_pe_type, layer_pos_enc=layer_pos_enc,
-                                          max_seq_len=max_seq_len, dataloader_generator=dataloader_generator)),
+                                          layer_pe=layer_pe, max_seq_len=max_seq_len,
+                                          dataloader_generator=dataloader_generator)),
                 wrapper_fn(Chunk(ff_chunks, FeedForward(
                     dim, mult=ff_mult, dropout=ff_dropout, glu=ff_glu), along_dim=1))
             ]))
@@ -142,11 +140,11 @@ class _Performer_(nn.Module):
                 continue
 
             layers.append(nn.ModuleList([
-                wrapper_fn(CrossAttention_(dim, heads=heads, dim_head=dim_head, nb_features=nb_features,
+                wrapper_fn(CrossAttention_(dim, heads=heads, dim_head=dim_head, features=features,
                                            generalized_attention=generalized_attention, kernel_fn=kernel_fn,
                                            dropout=attn_dropout, no_projection=no_projection, qkv_bias=qkv_bias,
                                            attn_out_bias=attn_out_bias,
-                                           layer_pos_enc=layer_pos_enc)),
+                                           layer_pe=layer_pe)),
                 wrapper_fn(Chunk(ff_chunks, FeedForward(
                     dim, mult=ff_mult, dropout=ff_dropout, glu=ff_glu), along_dim=1))
             ]))
@@ -187,5 +185,6 @@ class _Performer_(nn.Module):
     def forward(self, x, **kwargs):
         if self.auto_check_redraw:
             self.proj_updater.redraw_projections()
-        x, Zs, Ss, Zs_rot, Ss_rot = self.net(x, **kwargs)
-        return dict(x=x, Zs=Zs, Ss=Ss, Zs_rot=Zs_rot, Ss_rot=Ss_rot)
+        x, Zs, Ss, Zs_rot, Ss_rot, log_periods = self.net(x, **kwargs)
+        return dict(x=x, Zs=Zs, Ss=Ss, Zs_rot=Zs_rot, Ss_rot=Ss_rot,
+                    log_periods=log_periods)

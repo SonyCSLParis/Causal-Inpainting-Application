@@ -20,8 +20,6 @@ class CausalModel(nn.Module):
                  label_smoothing,
                  transformer,
                  pe_input_type,
-                 #  layer_pos_emb,
-                 #  layer_pos_emb_local)
                  ):
         super(CausalModel, self).__init__()
         self.data_processor = data_processor
@@ -174,7 +172,8 @@ class CausalModel(nn.Module):
                 'monitored_quantities': {
                     'loss': loss.item(),
                     'loss_prefix': loss_prefix.item(),
-                    'loss_inpainting': loss_inpainting.item()
+                    'loss_inpainting': loss_inpainting.item(),
+                    'log_periods': out['log_periods']
                 }
             }
 

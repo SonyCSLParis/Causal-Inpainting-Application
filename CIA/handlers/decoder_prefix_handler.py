@@ -75,7 +75,8 @@ class DecoderPrefixHandler(Handler):
             # ==========================
             with torch.no_grad():
                 x = tensor_dict['x']
-                x, metadata_dict = self.data_processor.preprocess(x, num_events_middle=None)
+                x, metadata_dict = self.data_processor.preprocess(
+                    x, num_events_middle=None)
 
             # ========Train decoder =============
             self.optimizer.zero_grad()
@@ -98,20 +99,20 @@ class DecoderPrefixHandler(Handler):
             means = {
                 key: value + means[key]
                 for key, value in monitored_quantities.items()
+                if key not in ['log_periods']
             }
 
             del loss
+
+        # for debugs (i.e. parameters) do not mean but use the last value instead
+        debugs = dict(log_periods=monitored_quantities['log_periods'])
 
         # renormalize monitored quantities
         for key, value in means.items():
             means[key] = all_reduce_scalar(value,
                                            average=True) / (sample_id + 1)
 
-        # means = {
-        #     key: all_reduce_scalar(value, average=True) / (sample_id + 1)
-        #     for key, value in means.items()
-        # }
-        return means
+        return means, debugs
 
     def inpaint_non_optimized(self, x, metadata_dict, temperature=1., top_p=1., top_k=0):
         # TODO add arguments to preprocess
@@ -189,15 +190,18 @@ class DecoderPrefixHandler(Handler):
         x[:, decoding_start_event:] = 0  # ensure we don't cheat!
 
         # get hidden states
-        out = self.model.module.infer_hidden_states(x, metadata_dict, decoding_start_index)
-        states = dict(Zs=out['Zs'], Ss=out['Ss'], Zs_rot=out['Zs_rot'], Ss_rot=out['Ss_rot'])
+        out = self.model.module.infer_hidden_states(
+            x, metadata_dict, decoding_start_index)
+        states = dict(Zs=out['Zs'], Ss=out['Ss'],
+                      Zs_rot=out['Zs_rot'], Ss_rot=out['Ss_rot'])
 
         with torch.no_grad():
             # i corresponds to the position of the token BEING generated
             for event_index in range(decoding_start_event, num_events):
                 for channel_index in range(self.num_channels_target):
                     decoding_index = event_index * self.num_channels_target + channel_index
-                    if decoding_index == decoding_start_index:  # no need to recompute this one already inferred with states
+                    if decoding_index == decoding_start_index:
+                        # no need to recompute this one already inferred with states
                         weights = out['weights']
                     else:
                         forward_pass = self.recurrent_step(

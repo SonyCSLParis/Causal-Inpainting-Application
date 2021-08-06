@@ -10,12 +10,13 @@ class PianoDataloaderGenerator(DataloaderGenerator):
                  sequences_size,
                  transformations,
                  pad_before,
+                 num_elements,
                  *args, **kwargs):
         legacy = True
 
         corpus_it_gen = PianoIteratorGenerator(
             subsets=[''],
-            num_elements=None
+            num_elements=num_elements
         )
 
         dataset: PianoMidiDataset = PianoMidiDataset(
