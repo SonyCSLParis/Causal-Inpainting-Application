@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from torch.autograd.function import Function
-import numpy as np
 from performer_pytorch.reversible import Deterministic, route_args
 
 
