@@ -1,5 +1,4 @@
-from CIA.model.utils.positional_embeddings.index_positional_embedding import IndexPositionalEmbedding
-from CIA.model.utils.positional_embeddings.elapsed_positional_embedding import ElapsedPositionalEmbedding
+
 from torch import nn
 from CIA.model.utils.performer import Performer_
 from CIA.model.causal_model import CausalModel
@@ -20,7 +19,15 @@ def get_dataloader_generator(dataset, dataloader_generator_kwargs):
         return PianoDataloaderGenerator(
             sequences_size=dataloader_generator_kwargs['sequences_size'],
             transformations=dataloader_generator_kwargs['transformations'],
-            pad_before=dataloader_generator_kwargs['pad_before']
+            pad_before=dataloader_generator_kwargs['pad_before'],
+            num_elements=None
+        )
+    elif dataset.lower() == 'piano_test':
+        return PianoDataloaderGenerator(
+            sequences_size=dataloader_generator_kwargs['sequences_size'],
+            transformations=dataloader_generator_kwargs['transformations'],
+            pad_before=dataloader_generator_kwargs['pad_before'],
+            num_elements=100
         )
     elif dataset.lower() == 'nes':
         return NESDataloader(
@@ -140,10 +147,23 @@ def get_positional_embedding(dataloader_generator,
 
 # todo write Decoder base class
 def get_decoder(data_processor, dataloader_generator, positional_embedding,
-                sos_embedding, decoder_type, decoder_kwargs, training_phase):
+                sos_embedding, decoder_kwargs, training_phase):
     num_channels_decoder = data_processor.num_channels
     num_events_decoder = data_processor.num_events
     max_seq_len = data_processor.num_tokens
+    features = decoder_kwargs['features']
+    layer_pe = decoder_kwargs['layer_pe']
+    if layer_pe is not None:
+        layer_pe_args = layer_pe['args']
+        post_phi_layerPE = layer_pe_args['post_phi_layerPE']
+        if post_phi_layerPE and (features['type'] == 'favor'):
+            dim_layerPE = features['args']['n_features']
+        else:
+            dim_layerPE = decoder_kwargs['d_model'] // decoder_kwargs['n_head']
+        layer_pe['args']['input_dim'] = dim_layerPE
+        pe_input_type = layer_pe['input']
+    else:
+        pe_input_type = None
 
     transformer = Performer_(
         max_seq_len=max_seq_len,    # max sequence length
@@ -152,7 +172,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         heads=decoder_kwargs['n_head'],                 # heads
         causal=True,                  # auto-regressive or not
         # number of random features, if not set, will default to (d * log(d)), where d is the dimension of each head
-        nb_features=decoder_kwargs['nb_features'],
+        features=features,
         # how frequently to redraw the projection matrix, the more frequent, the slower the training
         feature_redraw_interval=1000,
         # defaults to softmax approximation, but can be set to True for generalized attention
@@ -169,34 +189,24 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         # feedforward dropout
         ff_dropout=decoder_kwargs['dropout'],
         attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
-        local_attn_heads=decoder_kwargs['local_attn_heads'],           # No local attention. With: decoder_kwargs['n_head']//2 ??
-        local_window_size=256,        # window size of local attention
+        # No local attention. With: decoder_kwargs['n_head']//2 ??
+        local_attn_heads=decoder_kwargs['local_attn_heads'],
+        local_window_size=256,        # window size of local attention,
+        layer_pe=layer_pe,
+        dataloader_generator=dataloader_generator
     )
 
-    dim_head = decoder_kwargs['d_model'] // decoder_kwargs['n_head']
-    if decoder_type == 'performer':
-        layer_pos_emb = IndexPositionalEmbedding(
-            dim=dim_head, max_seq_len=max_seq_len)
-    elif decoder_type in ['elapsed_performer']:
-        layer_pos_emb = ElapsedPositionalEmbedding(
-            dim=dim_head, dataloader_generator=dataloader_generator)
-    else:
-        raise NotImplementedError
-
-    if decoder_type in ['performer', 'elapsed_performer']:
-        decoder = CausalModel(
-            data_processor=data_processor,
-            dataloader_generator=dataloader_generator,
-            positional_embedding=positional_embedding,
-            sos_embedding=sos_embedding,
-            d_model=decoder_kwargs['d_model'],
-            num_channels_decoder=num_channels_decoder,
-            num_events_decoder=num_events_decoder,
-            label_smoothing=decoder_kwargs['label_smoothing'],
-            transformer=transformer,
-            layer_pos_emb=layer_pos_emb)
-    else:
-        raise NotImplementedError
+    decoder = CausalModel(
+        data_processor=data_processor,
+        dataloader_generator=dataloader_generator,
+        positional_embedding=positional_embedding,
+        sos_embedding=sos_embedding,
+        d_model=decoder_kwargs['d_model'],
+        num_channels_decoder=num_channels_decoder,
+        num_events_decoder=num_events_decoder,
+        label_smoothing=decoder_kwargs['label_smoothing'],
+        transformer=transformer,
+        pe_input_type=pe_input_type)
 
     return decoder
 

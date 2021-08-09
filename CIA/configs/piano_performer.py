@@ -2,7 +2,7 @@ from pathlib import Path
 
 config = {
     'training_method':             'decoder',
-    'dataset':                     'piano',
+    'dataset':                     'piano',  # 'piano', 'piano_test'
 
     # --- Dataloader ---
     'dataloader_generator_kwargs': dict(
@@ -16,7 +16,8 @@ config = {
     ),  # Can be different from the encoder's data loader
 
     # --- DataProcessor ---
-    'data_processor_type':         'piano_prefix',  # can be used to filter out some channels
+    # can be used to filter out some channels
+    'data_processor_type':         'piano_prefix',
     'data_processor_kwargs':       dict(
         embedding_size=64,
         num_events_before=256,
@@ -25,7 +26,6 @@ config = {
 
     # --- Positional Embedding ---
     'positional_embedding_dict': dict(
-        # Est-ce qu'on laisse les sinusoidal absolute ? Peut servir pour savoir début/fin ? ou les progress bar seulement alos ?
         sinusoidal_embedding=dict(
             positional_embedding_size=128,
             num_channels=4,
@@ -56,20 +56,38 @@ config = {
     ),
 
     # --- Decoder ---
-    'decoder_type':                'performer',
-    'decoder_kwargs':              dict(
+    'decoder_kwargs': dict(
         d_model=512,
         n_head=8,
+        local_attn_heads=0,
         num_decoder_layers=16,
         dropout=0.1,
         label_smoothing=False,
-        nb_features=256,
+        features={
+            'type': 'favor',  # 'favor', 'elu'
+            'args': dict(n_features=256),  # 'favor args
+            # 'args': dict(),  # elu args
+        },
+        # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
+        execute_type='reversible',
+        layer_pe=None
+        # layer_pe=dict(
+        #     type='rototor',  # 'rotary', 'spe', 'rototor', 'rototor_fix'
+        #     input='index',  # 'index', 'elapsed'
+        #     args=dict(
+        #         # n_sines=2,
+        #         # n_realizations=4,
+        #         gated_layerSPE=False,
+        #         post_phi_layerPE=True,
+        #         theta_q=True,
+        #     )
+        # )
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  2,
-    'num_batches':                 256,
-    'num_epochs':                  2000,
+    'batch_size':                  16,
+    'num_batches':                 32,
+    'num_epochs':                  1000,
 
     # ======== model ID ========
     'timestamp':                   None,

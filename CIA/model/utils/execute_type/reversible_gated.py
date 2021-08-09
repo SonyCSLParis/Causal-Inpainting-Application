@@ -66,11 +66,13 @@ class ReversibleGatedBlock_(nn.Module):
             r = torch.sigmoid(self.Wgr(gy1) + self.Ugr(y1))
             z = torch.sigmoid(self.Wgz(gy1) + self.Ugz(y1) - self.bgg)
             h = torch.tanh(self.Wgg(gy1) + self.Ugg(r * y1))
+            # z = output of a sigmoid, so never 0, but numerically stable ??????
             y2 = (out2 - (1 - z) * h) * 1 / z
             y2.grad = None
 
         with torch.enable_grad():
-            out1.requires_grad = True
+            y2.requires_grad = True
+            y1.requires_grad = True
             gy1 = self.g(out1, record_rng=self.training, **g_args)
             r = torch.sigmoid(self.Wgr(gy1) + self.Ugr(out1))
             z = torch.sigmoid(self.Wgz(gy1) + self.Ugz(out1) - self.bgg)
@@ -79,8 +81,8 @@ class ReversibleGatedBlock_(nn.Module):
             torch.autograd.backward(yout2, dout2)
 
         with torch.no_grad():
-            dy1 = dout1 + yout2.grad
-            dy2 = yout2.grad
+            dy1 = dout1 + y1.grad
+            dy2 = y2.grad
             x = torch.cat([y1, y2.detach()], dim=2)
             dx = torch.cat([dy1, dy2], dim=2)
 
@@ -91,12 +93,13 @@ class ReversibleGatedBlock_(nn.Module):
             r = torch.sigmoid(self.Wfr(fx1) + self.Ufr(x1))
             z = torch.sigmoid(self.Wfz(fx1) + self.Ufz(x1) - self.bfg)
             h = torch.tanh(self.Wfg(fx1) + self.Ufg(r * x1))
+            # z = output of a sigmoid, so never 0, but numerically stable ??????
             x2 = (y2 - (1 - z) * h) * 1 / z
             x2.grad = None
 
         with torch.enable_grad():
             y1.requires_grad = True
-            fx1, states = self.f(y1, record_rng=self.training, **f_args)
+            fx1, _ = self.f(y1, record_rng=self.training, **f_args)
             r = torch.sigmoid(self.Wfr(fx1) + self.Ufr(y1))
             z = torch.sigmoid(self.Wfz(fx1) + self.Ufz(y1) - self.bfg)
             h = torch.tanh(self.Wfg(fx1) + self.Ufg(r * y1))
@@ -160,3 +163,8 @@ class ReversibleGatedSequence_(nn.Module):
         x, Zs, Ss = _ReversibleFunction_.apply(x, blocks, args)
         x = torch.stack(x.chunk(2, dim=-1)).sum(dim=0)
         return x, Zs, Ss
+
+
+# if __name__ == "__main__":
+#     model = ReversibleGatedSequence_
+#     print("gradCheck :", torch.autograd.gradcheck((model, (b_x,))))

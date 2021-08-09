@@ -1,5 +1,5 @@
 import torch
-from DatasetManager.piano.piano_helper import MaestroIteratorGenerator, PianoIteratorGenerator
+from DatasetManager.piano.piano_helper import PianoIteratorGenerator
 from DatasetManager.piano.piano_midi_dataset import PianoMidiDataset
 
 from CIA.dataloaders.dataloader import DataloaderGenerator
@@ -10,18 +10,15 @@ class PianoDataloaderGenerator(DataloaderGenerator):
                  sequences_size,
                  transformations,
                  pad_before,
+                 num_elements,
                  *args, **kwargs):
         legacy = True
 
-        # corpus_it_gen = MaestroIteratorGenerator(
-        #     composers_filter=[],
-        #     num_elements=None
-        # )
         corpus_it_gen = PianoIteratorGenerator(
             subsets=[''],
-            num_elements=None
+            num_elements=num_elements
         )
-        # Positive dataset
+
         dataset: PianoMidiDataset = PianoMidiDataset(
             corpus_it_gen=corpus_it_gen,
             sequence_size=sequences_size,
@@ -95,4 +92,3 @@ class PianoDataloaderGenerator(DataloaderGenerator):
 
     def get_feature_index(self, feature_name):
         return self.features.index(feature_name)
-
