@@ -132,7 +132,7 @@ class Handler:
                  num_workers=num_workers,
                  shuffle_val=True)
 
-            monitored_quantities_train, debug_train = self.epoch(
+            monitored_quantities_train = self.epoch(
                 data_loader=generator_train,
                 train=True,
                 num_batches=num_batches,
@@ -140,7 +140,7 @@ class Handler:
             del generator_train
 
             with torch.no_grad():
-                monitored_quantities_val, debug_val = self.epoch(
+                monitored_quantities_val = self.epoch(
                     data_loader=generator_val,
                     train=False,
                     num_batches=num_batches //
@@ -164,14 +164,6 @@ class Handler:
             if plot:
                 self.plot(epoch_id, monitored_quantities_train,
                           monitored_quantities_val)
-                # Add debug values to tensorboard
-                log_periods = debug_train['log_periods']
-                if not log_periods.sum() == 0:
-                    for lay in range(log_periods.size(2)):
-                        for head in range(log_periods.size(0)):
-                            self.writer.add_histogram(f'log_periods_{lay}_{head}',
-                                                      torch.exp(log_periods[head, :, lay]),
-                                                      epoch_id)
 
     def epoch(self,
               data_loader,

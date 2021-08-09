@@ -16,10 +16,10 @@ class ReversibleBlock_(nn.Module):
         y1, y2 = None, None
 
         with torch.no_grad():
-            f_x2, states, debug = self.f(x2, record_rng=self.training, **f_args)
+            f_x2, states = self.f(x2, record_rng=self.training, **f_args)
             y1 = x1 + f_x2
             y2 = x2 + self.g(y1, record_rng=self.training, **g_args)
-        return torch.cat([y1, y2], dim=2), states, debug
+        return torch.cat([y1, y2], dim=2), states
 
     def backward_pass(self, y, dy, f_args={}, g_args={}):
         y1, y2 = torch.chunk(y, 2, dim=2)
@@ -43,7 +43,7 @@ class ReversibleBlock_(nn.Module):
 
         with torch.enable_grad():
             x2.requires_grad = True
-            fx2, _, _ = self.f(x2, set_rng=True, **f_args)
+            fx2, _ = self.f(x2, set_rng=True, **f_args)
             torch.autograd.backward(fx2, dx1, retain_graph=True)
 
         with torch.no_grad():
@@ -64,8 +64,27 @@ class _ReversibleFunction_(Function):
     @staticmethod
     def forward(ctx, x, blocks, args):
         ctx.args = args
+        for layer_ind, (block, kwarg) in enumerate(zip(blocks, args)):
+            # extract the states for the current layer
+            kwargs_layer = dict(f_args=kwarg['f_args'], g_args=kwarg['g_args'])
+            x, _ = block(x, **kwargs_layer)
+        ctx.y = x.detach()
+        ctx.blocks = blocks
+        # can't return a list in torch Function
+        return x
+
+    @staticmethod
+    def backward(ctx, dy):
+        y = ctx.y
+        args = ctx.args
+        for block, kwargs in zip(ctx.blocks[::-1], args[::-1]):
+            y, dy = block.backward_pass(y, dy, **kwargs)
+        return dy, None, None
+
+    @staticmethod
+    def forward_with_states(ctx, x, blocks, args):
+        ctx.args = args
         states = []
-        debugs = []
         for layer_ind, (block, kwarg) in enumerate(zip(blocks, args)):
             # extract the states for the current layer
             f_args_layer = {k: (dict(Zs=v['Zs'][:, :, :, layer_ind], Ss=v['Ss'][:, :, :, :, layer_ind],
@@ -73,40 +92,17 @@ class _ReversibleFunction_(Function):
                                      Ss_rot=v['Ss_rot'][:, :, :, :, layer_ind]) if
                                 (k == 'states' and v is not None) else v) for k, v in kwarg['f_args'].items()}
             kwargs_layer = dict(f_args=f_args_layer, g_args=kwarg['g_args'])
-            x, state, debug = block(x, **kwargs_layer)
+            x, state = block(x, **kwargs_layer)
             if state is not None:
                 states.append(state)
-            if debugs is not None:
-                debugs.append(debug)
         ctx.y = x.detach()
         ctx.blocks = blocks
         # can't return a list in torch Function
-        if len(states) > 0:
-            Zs = torch.stack([st['Z'] for st in states], dim=-1)
-            Ss = torch.stack([st['S'] for st in states], dim=-1)
-            Zs_rot = torch.stack([st['Z_rot'] for st in states], dim=-1)
-            Ss_rot = torch.stack([st['S_rot'] for st in states], dim=-1)
-        else:
-            Zs = torch.zeros_like(x)
-            Ss = torch.zeros_like(x)
-            Zs_rot = torch.zeros_like(x)
-            Ss_rot = torch.zeros_like(x)
-
-        # debugs
-        if 'log_periods' in debugs[0]:
-            log_periods = torch.stack([deb['log_periods'] for deb in debugs], dim=-1)
-        else:
-            log_periods = torch.zeros_like(x)
-
-        return x, Zs, Ss, Zs_rot, Ss_rot, log_periods
-
-    @staticmethod
-    def backward(ctx, dy, dz, ds, dz_rot, ds_rot, dlp):
-        y = ctx.y
-        args = ctx.args
-        for block, kwargs in zip(ctx.blocks[::-1], args[::-1]):
-            y, dy = block.backward_pass(y, dy, **kwargs)
-        return dy, None, None, None, None, None
+        Zs = torch.stack([st['Z'] for st in states], dim=-1)
+        Ss = torch.stack([st['S'] for st in states], dim=-1)
+        Zs_rot = torch.stack([st['Z_rot'] for st in states], dim=-1)
+        Ss_rot = torch.stack([st['S_rot'] for st in states], dim=-1)
+        return x, Zs, Ss, Zs_rot, Ss_rot
 
 
 class ReversibleSequence_(nn.Module):
@@ -118,10 +114,14 @@ class ReversibleSequence_(nn.Module):
 
     def forward(self, x, **kwargs):
         x = torch.cat([x, x], dim=-1)
-
         blocks = self.blocks
         args = route_args(self.args_route, kwargs, len(blocks))
         args = list(map(lambda x: {'f_args': x[0], 'g_args': x[1]}, args))
-        x, Zs, Ss, Zs_rot, Ss_rot, log_periods = _ReversibleFunction_.apply(x, blocks, args)
-        x = torch.stack(x.chunk(2, dim=-1)).sum(dim=0)
-        return x, Zs, Ss, Zs_rot, Ss_rot, log_periods
+        if kwargs['inferring_states']:
+            x, Zs, Ss, Zs_rot, Ss_rot = _ReversibleFunction_.forward_with_states(x, blocks, args)
+            x = torch.stack(x.chunk(2, dim=-1)).sum(dim=0)
+            return x, Zs, Ss, Zs_rot, Ss_rot
+        else:
+            x = _ReversibleFunction_.apply(x, blocks, args)
+            x = torch.stack(x.chunk(2, dim=-1)).sum(dim=0)
+            return x

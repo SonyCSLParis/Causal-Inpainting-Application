@@ -221,10 +221,7 @@ class Attention_(nn.Module):
         out = torch.cat(attn_outs, dim=1)
         out = rearrange(out, 'b h n d -> b n (h d)')
         out = self.to_out(out)
-        debug = dict()
-        if hasattr(self, 'layer_pos_emb'):
-            debug['log_periods'] = self.layer_pos_emb.log_periods.detach().cpu()
-        return self.dropout(out), state, debug
+        return self.dropout(out), state
 
 
 class SelfAttention_(Attention_):

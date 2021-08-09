@@ -74,10 +74,10 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
     # === Init process group
     os.environ['MASTER_ADDR'] = 'localhost'
     # os.environ['MASTER_PORT'] = '29500'
-    # os.environ['MASTER_PORT'] = '29501'
+    os.environ['MASTER_PORT'] = '29501'
     # os.environ['MASTER_PORT'] = '12356'
     # os.environ['MASTER_PORT'] = '12357'
-    os.environ['MASTER_PORT'] = '12358'
+    # os.environ['MASTER_PORT'] = '12358'
     # os.environ['MASTER_PORT'] = '12359'
     dist.init_process_group(backend='nccl', world_size=world_size, rank=rank)
     torch.cuda.set_device(rank)

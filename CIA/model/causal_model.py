@@ -173,7 +173,6 @@ class CausalModel(nn.Module):
                     'loss': loss.item(),
                     'loss_prefix': loss_prefix.item(),
                     'loss_inpainting': loss_inpainting.item(),
-                    'log_periods': out['log_periods']
                 }
             }
 

@@ -185,6 +185,9 @@ class _Performer_(nn.Module):
     def forward(self, x, **kwargs):
         if self.auto_check_redraw:
             self.proj_updater.redraw_projections()
-        x, Zs, Ss, Zs_rot, Ss_rot, log_periods = self.net(x, **kwargs)
-        return dict(x=x, Zs=Zs, Ss=Ss, Zs_rot=Zs_rot, Ss_rot=Ss_rot,
-                    log_periods=log_periods)
+        if kwargs['inferring_states']:
+            x, Zs, Ss, Zs_rot, Ss_rot = self.net(x, **kwargs)
+            return dict(x=x, Zs=Zs, Ss=Ss, Zs_rot=Zs_rot, Ss_rot=Ss_rot)
+        else:
+            x = self.net(x, **kwargs)
+            return dict(x=x)

@@ -99,20 +99,16 @@ class DecoderPrefixHandler(Handler):
             means = {
                 key: value + means[key]
                 for key, value in monitored_quantities.items()
-                if key not in ['log_periods']
             }
 
             del loss
-
-        # for debugs (i.e. parameters) do not mean but use the last value instead
-        debugs = dict(log_periods=monitored_quantities['log_periods'])
 
         # renormalize monitored quantities
         for key, value in means.items():
             means[key] = all_reduce_scalar(value,
                                            average=True) / (sample_id + 1)
 
-        return means, debugs
+        return means
 
     def inpaint_non_optimized(self, x, metadata_dict, temperature=1., top_p=1., top_k=0):
         # TODO add arguments to preprocess
