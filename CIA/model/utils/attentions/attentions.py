@@ -67,6 +67,7 @@ class Attention_(nn.Module):
                                          dropout=dropout, look_forward=int(
                                              not causal),
                                          rel_pos_emb_config=(dim_head, local_heads)) if local_heads > 0 else None
+        self.local_fast_attention = LocalAttentionLinear() if local_heads > 0 else None
 
         # linear mapping to q, k, v
         self.to_q = nn.Linear(dim, inner_dim, bias=qkv_bias)
@@ -220,10 +221,10 @@ class Attention_(nn.Module):
                 lq_rot = None
                 lk_rot = None
 
-            out, state = self.local_fast_attention(
-                lq, lk, lq_rot, lk_rot, lv, kwargs['states'], kwargs['inferring_states'])
+            out = self.local_fast_attention(lq, lk, lq_rot, lk_rot, lv)
+            state = None
             attn_outs.append(out)
-            states.append(state)
+            states = None
 
         out = torch.cat(attn_outs, dim=1)
         out = rearrange(out, 'b h n d -> b n (h d)')
@@ -315,6 +316,40 @@ class FastAttention_(nn.Module):
         return out, states
 
 
+class LocalAttentionLinear(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, q, k, q_rot, k_rot, v, eps=1e-12):
+        k_cumsum = k.cumsum(dim=-2)
+        k_cumsum[:, :, 256:] = k_cumsum[:, :, 256:] - k_cumsum[:, :, :-256]
+        D = torch.einsum('...nd,...nd->...n', q, k_cumsum.type_as(q))
+        if q_rot is not None:
+            k_cumsum_rot = k_rot.cumsum(dim=-2)
+            k_cumsum_rot[:, :, 256:] = k_cumsum_rot[:,
+                                                    :, 256:] - k_cumsum_rot[:, :, :-256]
+            D_rot = torch.einsum('...nd,...nd->...n',
+                                 q_rot, k_cumsum_rot.type_as(q))
+            D = D + D_rot
+        D_inv = 1. / (D + eps)
+
+        context = torch.einsum('...nd,...ne->...nde', k, v)
+        context_cumsum = context.cumsum(dim=-3)
+        context_cumsum[:, :, 256:] = context_cumsum[:, :, 256:] - context_cumsum[:, :, :-256]
+
+        out = torch.einsum('...nde,...nd,...n->...ne',
+                           context_cumsum, q, D_inv)
+        if q_rot is not None:
+            context_rot = torch.einsum('...nd,...ne->...nde', k_rot, v)
+            context_rot_cumsum = context_rot.cumsum(dim=-3)
+            context_rot_cumsum[:, :, :256] = context_rot_cumsum[:, :, 256:] -\
+                context_rot_cumsum[:, :, :-256]
+            out_rot = torch.einsum('...nde,...nd,...n->...ne',
+                                   context_rot_cumsum, q_rot, D_inv)
+            out = out + out_rot
+        return out
+
+
 # inefficient causal linear attention, without cuda code,
 # (used for parallel inference of hidden states in recurrent mode)
 def infer_hidden_states(q, k, q_rot, k_rot, v, chunk_size=128, eps=1e-12):
@@ -337,8 +372,10 @@ def infer_hidden_states(q, k, q_rot, k_rot, v, chunk_size=128, eps=1e-12):
                 context_rot = torch.einsum('...nd,...ne->...nde', k_rot, v)
                 context_cumsum_rot = last_context_cumsum_rot + \
                     context_rot.cumsum(dim=-3)
+            D_inv = 1. / (D + D_rot + eps)
+        else:
+            D_inv = 1. / (D + eps)
 
-        D_inv = 1. / (D + D_rot + eps)
         out = torch.einsum('...nde,...nd,...n->...ne',
                            context_cumsum, q, D_inv)
         if q_rot is not None:
