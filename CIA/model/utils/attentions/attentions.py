@@ -46,7 +46,9 @@ class Attention_(nn.Module):
         self.dim_head = default(dim_head, dim // heads)
         inner_dim = dim_head * heads
         self.features_type = features['type']
-        if self.features_type == 'favor':
+        if self.features_type is None:
+            raise NotImplementedError
+        elif self.features_type == 'favor':
             nb_features = features['args']['n_features']
             self.feature_map = FeatureMap(dim_head, nb_features, generalized_attention=generalized_attention,
                                           kernel_fn=kernel_fn, no_projection=no_projection)
@@ -80,7 +82,8 @@ class Attention_(nn.Module):
             self.input_dim_layerPE = layer_pe_args['input_dim']
             self.gated = layer_pe_args['gated_layerSPE']
             if self.gated:
-                assert layer_pe['type'] in ['spe', 'spe_factorized'], 'Not sure Gating works with anything except spe'
+                assert layer_pe['type'] in [
+                    'spe', 'spe_factorized'], 'Not sure Gating works with anything except spe'
                 self.gate_global = nn.Parameter(torch.randn(
                     self.global_heads, self.input_dim_layerPE))
                 self.gate_local = nn.Parameter(torch.randn(
@@ -120,11 +123,13 @@ class Attention_(nn.Module):
             t, 'b n (h d) -> b h n d', h=h) if t is not None else None,
             (q, k, v, theta_q))
         # split between global and local heads
-        (q, lq), (k, lk), (v, lv), (theta_q, l_theta_q) = map(
-            lambda t: (t[:, :gh], t[:, gh:]) if t is not None else (None, None),
+        (q, lq), (k, lk), (v, lv), (theta_q, ltheta_q) = map(
+            lambda t: (t[:, :gh], t[:, gh:]
+                       ) if t is not None else (None, None),
             (q, k, v, theta_q))
 
         attn_outs = []
+        states = []
 
         if not empty(q):
             if exists(context_mask):
@@ -192,31 +197,33 @@ class Attention_(nn.Module):
             out, state = self.fast_attention(
                 q, k, q_rot, k_rot, v, kwargs['states'], kwargs['inferring_states'])
             attn_outs.append(out)
+            states.append(state)
 
         if not empty(lq):
             assert not cross_attend, 'local attention is not compatible with cross attention'
-            # Apply layer PE to local attention ? Not implemented in original implem or performer, but why ?
-            if self.PE_type == 'rotary':
-                lq, lk = apply_rotary_pos_emb_(lq, lk, pos_emb_input)
-            elif self.PE_type == 'spe':
-                qbar, kbar = torch.split(
-                    pos_emb_input, pos_emb_input.size(2)//2, dim=2)
-                lqbar = torch.reshape(
-                    qbar, (batch_size, length, self.local_heads, self.input_dim_local, -1))
-                lkbar = torch.reshape(
-                    kbar, (batch_size, length, self.local_heads, self.input_dim_local, -1))
-                code_shape = (self.local_heads, self.input_dim_local)
-                if self.gated:
-                    lgate = self.gate_local
-                else:
-                    lgate = None
-                lq, lk = apply_spe_pos_emb_(
-                    lq, lk, lqbar, lkbar, code_shape, lgate)
-            else:
-                raise NotImplementedError
 
-            out = self.local_attn(lq, lk, lv, input_mask=mask)
+            if self.post_phi_layerPE:
+                if self.features_type == 'favor':
+                    lq, lk = self.feature_map(lq, lk)
+                elif self.features_type == 'elu':
+                    lq, lk = map(lambda t: F.elu(t) + 1, (lq, lk))
+
+            if pos_emb_input is not None:
+                if self.layer_pe_type in ['rototor', 'rototor_fix']:
+                    lpos_emb_q = self.layer_pos_emb(
+                        pe_input=pos_emb_input, offset=ltheta_q)
+                    lpos_emb_k = self.layer_pos_emb(
+                        pe_input=pos_emb_input, offset=None)
+                    lq_rot = apply_rototor_pos_emb_(lq, lpos_emb_q)
+                    lk_rot = apply_rototor_pos_emb_(lk, lpos_emb_k)
+            else:
+                lq_rot = None
+                lk_rot = None
+
+            out, state = self.local_fast_attention(
+                lq, lk, lq_rot, lk_rot, lv, kwargs['states'], kwargs['inferring_states'])
             attn_outs.append(out)
+            states.append(state)
 
         out = torch.cat(attn_outs, dim=1)
         out = rearrange(out, 'b h n d -> b n (h d)')
@@ -320,30 +327,36 @@ def infer_hidden_states(q, k, q_rot, k_rot, v, chunk_size=128, eps=1e-12):
     for q, k, q_rot, k_rot, v in zip(*map(lambda t: t.chunk(num_chunks, dim=-2), (q, k, q_rot, k_rot, v))):
         k_cumsum = last_k_cumsum + k.cumsum(dim=-2)
         D = torch.einsum('...nd,...nd->...n', q, k_cumsum.type_as(q))
-        k_cumsum_rot = last_k_cumsum_rot + k_rot.cumsum(dim=-2)
-        D_rot = torch.einsum('...nd,...nd->...n', q_rot,
-                             k_cumsum_rot.type_as(q_rot))
-        D_inv = 1. / (D + D_rot + eps)
-
         context = torch.einsum('...nd,...ne->...nde', k, v)
         context_cumsum = last_context_cumsum + context.cumsum(dim=-3)
-        context_rot = torch.einsum('...nd,...ne->...nde', k_rot, v)
-        context_cumsum_rot = last_context_cumsum_rot + \
-            context_rot.cumsum(dim=-3)
+        if q_rot is not None:
+            for q_rot, k_rot in zip(*map(lambda t: t.chunk(num_chunks, dim=-2), (q_rot, k_rot))):
+                k_cumsum_rot = last_k_cumsum_rot + k_rot.cumsum(dim=-2)
+                D_rot = torch.einsum('...nd,...nd->...n', q_rot,
+                                     k_cumsum_rot.type_as(q_rot))
+                context_rot = torch.einsum('...nd,...ne->...nde', k_rot, v)
+                context_cumsum_rot = last_context_cumsum_rot + \
+                    context_rot.cumsum(dim=-3)
 
+        D_inv = 1. / (D + D_rot + eps)
         out = torch.einsum('...nde,...nd,...n->...ne',
                            context_cumsum, q, D_inv)
-        out_rot = torch.einsum('...nde,...nd,...n->...ne',
-                               context_cumsum_rot, q_rot, D_inv)
-        out = out + out_rot
+        if q_rot is not None:
+            out_rot = torch.einsum('...nde,...nd,...n->...ne',
+                                   context_cumsum_rot, q_rot, D_inv)
+            out = out + out_rot
 
         last_k_cumsum = k_cumsum[:, :, -1:]
         last_context_cumsum = context_cumsum[:, :, -1:]
-        last_k_cumsum_rot = k_cumsum_rot[:, :, -1:]
-        last_context_cumsum_rot = context_cumsum_rot[:, :, -1:]
+        if q_rot is not None:
+            last_k_cumsum_rot = k_cumsum_rot[:, :, -1:]
+            last_context_cumsum_rot = context_cumsum_rot[:, :, -1:]
         outs.append(out)
 
     out = torch.cat(outs, dim=-2)
+    if q_rot is None:
+        last_k_cumsum_rot = None
+        last_context_cumsum_rot = None
     states = dict(Z=last_k_cumsum.squeeze(2), S=last_context_cumsum.squeeze(2),
                   Z_rot=last_k_cumsum_rot.squeeze(2), S_rot=last_context_cumsum_rot.squeeze(2))
     return out, states
@@ -354,24 +367,34 @@ def recursive_attention_step(q, k, q_rot, k_rot, v, states, eps=1e-12):
     k_cumsum_rot = states['Zs_rot'].unsqueeze(2) + k_rot
     D = torch.einsum('...nd,...nd->...n', q,
                      k_cumsum.type_as(q))
-    D_rot = torch.einsum('...nd,...nd->...n', q_rot,
-                         k_cumsum_rot.type_as(q_rot))
-    D_inv = 1. / (D + D_rot + eps)
+    if q_rot is not None:
+        D_rot = torch.einsum('...nd,...nd->...n', q_rot,
+                             k_cumsum_rot.type_as(q_rot))
+        D_inv = 1. / (D + D_rot + eps)
+    else:
+        D_inv = 1. / (D + eps)
 
     context = torch.einsum('...nd,...ne->...nde', k, v)
     context_cumsum = states['Ss'].unsqueeze(2) + context
-    context_rot = torch.einsum('...nd,...ne->...nde', k_rot, v)
-    context_cumsum_rot = states['Ss_rot'].unsqueeze(2) + context_rot
+    if k_rot is not None:
+        context_rot = torch.einsum('...nd,...ne->...nde', k_rot, v)
+        context_cumsum_rot = states['Ss_rot'].unsqueeze(2) + context_rot
 
     out = torch.einsum('...nde,...nd,...n->...ne',
                        context_cumsum, q, D_inv)
-    out_rot = torch.einsum('...nde,...nd,...n->...ne',
-                           context_cumsum_rot, q_rot, D_inv)
-    out = out_rot + out
+    if k_rot is not None:
+        out_rot = torch.einsum('...nde,...nd,...n->...ne',
+                               context_cumsum_rot, q_rot, D_inv)
+        out = out_rot + out
+
     last_k_cumsum = k_cumsum[:, :, 0]
-    last_k_cumsum_rot = k_cumsum_rot[:, :, 0]
     last_context_cumsum = context_cumsum[:, :, 0]
-    last_context_cumsum_rot = context_cumsum_rot[:, :, 0]
+    if q_rot is not None:
+        last_k_cumsum_rot = k_cumsum_rot[:, :, 0]
+        last_context_cumsum_rot = context_cumsum_rot[:, :, 0]
+    else:
+        last_k_cumsum_rot = None
+        last_context_cumsum_rot = None
     states = dict(Z=last_k_cumsum, S=last_context_cumsum,
                   Z_rot=last_k_cumsum_rot, S_rot=last_context_cumsum_rot)
     return out, states
