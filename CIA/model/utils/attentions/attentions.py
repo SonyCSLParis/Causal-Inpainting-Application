@@ -47,7 +47,7 @@ class Attention_(nn.Module):
         inner_dim = dim_head * heads
         self.features_type = features['type']
         if self.features_type is None:
-            raise NotImplementedError
+            pass
         elif self.features_type == 'favor':
             nb_features = features['args']['n_features']
             self.feature_map = FeatureMap(dim_head, nb_features, generalized_attention=generalized_attention,
@@ -63,11 +63,13 @@ class Attention_(nn.Module):
         # assert local_heads == 0, 'Dont use local attention, incompatible with recursive transfofos'
         self.global_heads = heads - local_heads
         self.local_heads = local_heads
-        self.local_attn = LocalAttention(window_size=local_window_size, causal=causal, autopad=True,
-                                         dropout=dropout, look_forward=int(
-                                             not causal),
-                                         rel_pos_emb_config=(dim_head, local_heads)) if local_heads > 0 else None
-        self.local_fast_attention = LocalAttentionLinear() if local_heads > 0 else None
+        if self.features_type is None:
+            self.local_attn = LocalAttention(window_size=local_window_size, causal=causal, autopad=True,
+                                             dropout=dropout, look_forward=int(
+                                                 not causal),
+                                             rel_pos_emb_config=(dim_head, local_heads)) if local_heads > 0 else None
+        else:
+            self.local_fast_attention = LocalAttentionLinear() if local_heads > 0 else None
 
         # linear mapping to q, k, v
         self.to_q = nn.Linear(dim, inner_dim, bias=qkv_bias)
@@ -193,10 +195,23 @@ class Attention_(nn.Module):
                 k_rot = None
 
             if not self.post_phi_layerPE:
-                q, k = self.feature_map(q, k)
+                if self.features_type == 'favor':
+                    q, k = self.feature_map(q, k)
+                elif self.features_type == 'elu':
+                    q, k = map(lambda t: F.elu(t) + 1, (q, k))
 
-            out, state = self.fast_attention(
-                q, k, q_rot, k_rot, v, kwargs['states'], kwargs['inferring_states'])
+            if self.features_type is None:
+                _, _, time, dim = q.shape
+                qv = torch.einsum('bhid,bhjd->bhij', q, k) * (dim ** -0.5)
+                causal_mask = torch.triu(-float('inf')*torch.ones(time, time), diagonal=1).to(qv.device)
+                qv_masked = causal_mask[None, None, :, :] + qv
+                attn = qv_masked.softmax(dim=-1)
+                attn = self.dropout(attn)
+                out = torch.einsum('bhij,bhje->bhie', attn, v)
+                state = None
+            else:
+                out, state = self.fast_attention(
+                    q, k, q_rot, k_rot, v, kwargs['states'], kwargs['inferring_states'])
             attn_outs.append(out)
             states.append(state)
 
@@ -221,10 +236,19 @@ class Attention_(nn.Module):
                 lq_rot = None
                 lk_rot = None
 
-            out = self.local_fast_attention(lq, lk, lq_rot, lk_rot, lv)
+            if self.features_type is None:
+                _, _, time, dim = lq.shape
+                lqv = torch.einsum('bhid,bhjd->bhij', lq, lk) * (dim ** -0.5)
+                causal_mask = torch.triu(-float('inf')*torch.ones(time, time), diagonal=1).to(lqv.device)
+                lqv_masked = causal_mask[None, None, :, :] + lqv
+                attn = lqv_masked.softmax(dim=-1)
+                attn = self.dropout(attn)
+                out = torch.einsum('bhij,bhje->bhie', attn, lv)
+                state = None
+            else:
+                out = self.local_fast_attention(lq, lk, lq_rot, lk_rot, lv)
             state = None
             attn_outs.append(out)
-            states = None
 
         out = torch.cat(attn_outs, dim=1)
         out = rearrange(out, 'b h n d -> b n (h d)')
@@ -335,7 +359,8 @@ class LocalAttentionLinear(nn.Module):
 
         context = torch.einsum('...nd,...ne->...nde', k, v)
         context_cumsum = context.cumsum(dim=-3)
-        context_cumsum[:, :, 256:] = context_cumsum[:, :, 256:] - context_cumsum[:, :, :-256]
+        context_cumsum[:, :, 256:] = context_cumsum[:,
+                                                    :, 256:] - context_cumsum[:, :, :-256]
 
         out = torch.einsum('...nde,...nd,...n->...ne',
                            context_cumsum, q, D_inv)

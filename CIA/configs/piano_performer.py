@@ -64,12 +64,11 @@ config = {
         dropout=0.1,
         label_smoothing=False,
         features={
-            'type': 'favor',  # 'favor', 'elu'
-            'args': dict(n_features=256),  # 'favor args
-            # 'args': dict(),  # elu args
+            'type': None,  # 'favor', 'elu', None is Transformer
+            # 'args': dict(n_features=256),  # 'favor args
+            'args': dict(),  # elu args
         },
-        # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
-        execute_type='reversible',
+        execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
         layer_pe=None
         # layer_pe=dict(
         #     type='rototor',  # 'rotary', 'spe', 'rototor', 'rototor_fix'
@@ -86,7 +85,7 @@ config = {
     # ======== Training ========
     'lr':                          1e-4,
     'batch_size':                  2,
-    'num_batches':                 2,
+    'num_batches':                 32,
     'num_epochs':                  2000,
 
     # ======== model ID ========
