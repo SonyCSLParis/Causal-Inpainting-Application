@@ -124,9 +124,12 @@ class DecoderPrefixHandler(Handler):
         x[:, decoding_start_event:] = 0
         with torch.no_grad():
             # i corresponds to the position of the token BEING generated
-            for event_index in range(decoding_start_event, num_events):
+            for event_index in range(decoding_start_event, num_events):                
                 for channel_index in range(self.num_channels_target):
-                    decoding_index = event_index * self.num_channels_target + channel_index
+                    # TODO(Leo): BIGGESTBUG FIX EVER
+                    metadata_dict['original_sequence'] = x
+
+                    decoding_index = event_index * self.num_channels_target + channel_index                    
 
                     forward_pass = self.forward_step(
                         target=x,
@@ -191,6 +194,8 @@ class DecoderPrefixHandler(Handler):
         states = dict(Zs=out['Zs'], Ss=out['Ss'],
                       Zs_rot=out['Zs_rot'], Ss_rot=out['Ss_rot'])
 
+
+        # TODO(Leo): MUST ADD original_token to metadata_dict, otherwise, positional encodings are not computed properly
         with torch.no_grad():
             # i corresponds to the position of the token BEING generated
             for event_index in range(decoding_start_event, num_events):
