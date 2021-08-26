@@ -192,6 +192,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         # No local attention. With: decoder_kwargs['n_head']//2 ??
         local_attn_heads=decoder_kwargs['local_attn_heads'],
         local_window_size=256,        # window size of local attention,
+        fast_local_attn=decoder_kwargs['fast_local_attn'],
         layer_pe=layer_pe,
         dataloader_generator=dataloader_generator
     )

@@ -162,8 +162,12 @@ class CausalModel(nn.Module):
             num_tokens_prefix = loss_mask_prefix.sum()
             num_tokens_inpainting = loss_mask_inpainting.sum()
 
-            loss = (loss_prefix * num_tokens_prefix + loss_inpainting * num_tokens_inpainting) / \
-                (num_tokens_prefix + num_tokens_inpainting)
+            # loss = (loss_prefix * num_tokens_prefix + loss_inpainting * num_tokens_inpainting) / \
+            #     (num_tokens_prefix + num_tokens_inpainting)
+
+            # TODO WARNING hardcoded values:
+            # different weighting for finetuning
+            loss = (loss_prefix * 0.1 + loss_inpainting * 0.9)
 
             return {
                 'loss':                 loss,
@@ -245,6 +249,9 @@ class CausalModel(nn.Module):
 
     def recurrent_step(self, target, metadata_dict, states, decoding_index):
         # aaa = time.time()
+        # CRUCIAL LINE
+        # metadata_dict['original_token'] = target[:, decoding_index]
+
         target_embedded = self.data_processor.embed(target)
         target_seq = flatten(target_embedded)
         target_seq, layer_pos_emb, h_pe = self.prepare_sequence(

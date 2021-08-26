@@ -36,13 +36,12 @@ class Rototor(nn.Module):
         # 50, density=True, facecolor='g', alpha=0.75)
         # plt.savefig('periods.pdf')
         emb = torch.stack((sinusoid_inp.cos(), sinusoid_inp.sin()), dim=-1)
-        raise NotImplementedError
-        self.plot(periods)
+        # self.plot(periods)
         return emb.to(pe_input)
 
-    def plot(self, periods):
-        for lay in range(periods.size(2)):
-            for head in range(periods.size(0)):
-                self.writer.add_histogram(f'periods_{lay}_{head}',
-                                          torch.exp(periods[head, :, lay]),
-                                          epoch_id)
+    # def plot(self, periods):
+    #     for lay in range(periods.size(2)):
+    #         for head in range(periods.size(0)):
+    #             self.writer.add_histogram(f'periods_{lay}_{head}',
+    #                                       torch.exp(periods[head, :, lay]),
+    #                                       epoch_id)

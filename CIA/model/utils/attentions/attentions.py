@@ -1,7 +1,6 @@
+from CIA.model.utils.positional_embeddings.pe_modules.rotary import Rotary
 from CIA.model.utils.positional_embeddings.pe_modules.rototor import Rototor
 from CIA.model.utils.positional_embeddings.pe_modules.index_spe import SineSPE
-from CIA.model.utils.positional_embeddings.pe_modules.elapsed_positional_embedding import ElapsedPositionalEmbedding
-from CIA.model.utils.positional_embeddings.pe_modules.index_positional_embedding import IndexPositionalEmbedding
 from performer_pytorch.performer_pytorch import default,\
     empty, exists, gaussian_orthogonal_random_matrix, generalized_kernel, linear_attention, null_context, softmax_kernel
 from torch.cuda.amp import autocast
@@ -29,6 +28,7 @@ class Attention_(nn.Module):
         heads=8,
         dim_head=64,
         local_heads=0,
+        fast_local_attn=None,
         local_window_size=256,
         features=None,
         generalized_attention=False,
@@ -63,13 +63,15 @@ class Attention_(nn.Module):
         # assert local_heads == 0, 'Dont use local attention, incompatible with recursive transfofos'
         self.global_heads = heads - local_heads
         self.local_heads = local_heads
-        if self.features_type is None:
+        if fast_local_attn:
+            self.local_fast_attention = LocalAttentionLinear() if local_heads > 0 else None
+            self.local_attn = None
+        else:
+            self.local_fast_attention = None
             self.local_attn = LocalAttention(window_size=local_window_size, causal=causal, autopad=True,
                                              dropout=dropout, look_forward=int(
                                                  not causal),
                                              rel_pos_emb_config=(dim_head, local_heads)) if local_heads > 0 else None
-        else:
-            self.local_fast_attention = LocalAttentionLinear() if local_heads > 0 else None
 
         # linear mapping to q, k, v
         self.to_q = nn.Linear(dim, inner_dim, bias=qkv_bias)
@@ -97,9 +99,14 @@ class Attention_(nn.Module):
             else:
                 self.to_theta_q = None
 
+            n_global_heads = self.heads - self.local_heads
+            if not fast_local_attn:
+                n_local_heads = 0
+            else:
+                n_local_heads = self.local_heads
             self.layer_pos_emb, self.layer_pos_emb_local = \
-                get_pes(layer_pe=layer_pe, n_global_heads=self.heads, n_local_heads=self.local_heads,
-                        max_seq_len=max_seq_len, dataloader_generator=dataloader_generator)
+                get_pes(layer_pe=layer_pe, n_global_heads=n_global_heads, n_local_heads=n_local_heads,
+                        dataloader_generator=dataloader_generator)
             self.layer_pe_type = layer_pe['type']
         else:
             self.post_phi_layerPE = True
@@ -107,7 +114,7 @@ class Attention_(nn.Module):
 
     def forward(self, x, pos_emb_input=None, context=None, mask=None, context_mask=None,
                 **kwargs):
-        batch_size, length, _, h, gh = *x.shape, self.heads, self.global_heads
+        _, _, _, h, gh = *x.shape, self.heads, self.global_heads
 
         # cross-attention
         cross_attend = exists(context)
@@ -153,10 +160,11 @@ class Attention_(nn.Module):
                         pe_input=pos_emb_input, offset=None)
                     q_rot = apply_rototor_pos_emb_(q, pos_emb_q)
                     k_rot = apply_rototor_pos_emb_(k, pos_emb_k)
-                # if self.layer_pe_type == 'rotary':
-                #     pos_emb_q = self.layer_pos_emb(pe_input=pos_emb_input)
-                #     pos_emb_k = self.layer_pos_emb(pe_input=pos_emb_input)
-                #     q, k = apply_rotary_pos_emb_(q, k, pos_emb)
+                elif self.layer_pe_type == 'rotary':
+                    pos_emb = self.layer_pos_emb(pe_input=pos_emb_input)
+                    q, k = apply_rotary_pos_emb_(q, k, pos_emb)
+                    q_rot = None
+                    k_rot = None
                 # elif self.PE_type in ['spe', 'spe_factorized']:
                 #     qbar, kbar = torch.split(
                 #         pos_emb, pos_emb.size(2)//2, dim=2)
@@ -197,13 +205,17 @@ class Attention_(nn.Module):
             if not self.post_phi_layerPE:
                 if self.features_type == 'favor':
                     q, k = self.feature_map(q, k)
+                    if q_rot is not None:
+                        raise NotImplementedError
                 elif self.features_type == 'elu':
                     q, k = map(lambda t: F.elu(t) + 1, (q, k))
-
+                    if q_rot is not None:
+                        raise NotImplementedError
             if self.features_type is None:
                 _, _, time, dim = q.shape
                 qv = torch.einsum('bhid,bhjd->bhij', q, k) * (dim ** -0.5)
-                causal_mask = torch.triu(-float('inf')*torch.ones(time, time), diagonal=1).to(qv.device)
+                causal_mask = torch.triu(-float('inf') *
+                                         torch.ones(time, time), diagonal=1).to(qv.device)
                 qv_masked = causal_mask[None, None, :, :] + qv
                 attn = qv_masked.softmax(dim=-1)
                 attn = self.dropout(attn)
@@ -218,35 +230,45 @@ class Attention_(nn.Module):
         if not empty(lq):
             assert not cross_attend, 'local attention is not compatible with cross attention'
 
-            if self.post_phi_layerPE:
-                if self.features_type == 'favor':
-                    lq, lk = self.feature_map(lq, lk)
-                elif self.features_type == 'elu':
-                    lq, lk = map(lambda t: F.elu(t) + 1, (lq, lk))
+            if self.local_fast_attention:
+                if self.post_phi_layerPE:
+                    if self.features_type == 'favor':
+                        lq, lk = self.feature_map(lq, lk)
+                    elif self.features_type == 'elu':
+                        lq, lk = map(lambda t: F.elu(t) + 1, (lq, lk))
 
-            if pos_emb_input is not None:
-                if self.layer_pe_type in ['rototor', 'rototor_fix']:
-                    lpos_emb_q = self.layer_pos_emb(
-                        pe_input=pos_emb_input, offset=ltheta_q)
-                    lpos_emb_k = self.layer_pos_emb(
-                        pe_input=pos_emb_input, offset=None)
-                    lq_rot = apply_rototor_pos_emb_(lq, lpos_emb_q)
-                    lk_rot = apply_rototor_pos_emb_(lk, lpos_emb_k)
-            else:
-                lq_rot = None
-                lk_rot = None
+                if pos_emb_input is not None:
+                    if self.layer_pe_type in ['rototor', 'rototor_fix']:
+                        lpos_emb_q = self.layer_pos_emb(
+                            pe_input=pos_emb_input, offset=ltheta_q)
+                        lpos_emb_k = self.layer_pos_emb(
+                            pe_input=pos_emb_input, offset=None)
+                        lq_rot = apply_rototor_pos_emb_(lq, lpos_emb_q)
+                        lk_rot = apply_rototor_pos_emb_(lk, lpos_emb_k)
+                    elif self.layer_pe_type == 'rotary':
+                        pos_emb = self.layer_pos_emb(pe_input=pos_emb_input)
+                        lq, lk = apply_rotary_pos_emb_(lq, lk, pos_emb)
+                        lq_rot = None
+                        lk_rot = None
+                else:
+                    lq_rot = None
+                    lk_rot = None
 
-            if self.features_type is None:
-                _, _, time, dim = lq.shape
-                lqv = torch.einsum('bhid,bhjd->bhij', lq, lk) * (dim ** -0.5)
-                causal_mask = torch.triu(-float('inf')*torch.ones(time, time), diagonal=1).to(lqv.device)
-                lqv_masked = causal_mask[None, None, :, :] + lqv
-                attn = lqv_masked.softmax(dim=-1)
-                attn = self.dropout(attn)
-                out = torch.einsum('bhij,bhje->bhie', attn, lv)
-                state = None
+                if self.features_type is None:
+                    _, _, time, dim = lq.shape
+                    lqv = torch.einsum('bhid,bhjd->bhij', lq, lk) * (dim ** -0.5)
+                    causal_mask = torch.triu(-float('inf') *
+                                            torch.ones(time, time), diagonal=1).to(lqv.device)
+                    lqv_masked = causal_mask[None, None, :, :] + lqv
+                    attn = lqv_masked.softmax(dim=-1)
+                    attn = self.dropout(attn)
+                    out = torch.einsum('bhij,bhje->bhie', attn, lv)
+                    state = None
+                else:
+                    out = self.local_fast_attention(lq, lk, lq_rot, lk_rot, lv)
             else:
-                out = self.local_fast_attention(lq, lk, lq_rot, lk_rot, lv)
+                out = self.local_attn(lq, lk, lv, input_mask=mask)
+
             state = None
             attn_outs.append(out)
 
@@ -501,7 +523,7 @@ def causal_linear_attention(q, k, q_rot, k_rot, v, eps=1e-12):
     return out
 
 
-def get_pes(layer_pe, n_global_heads, n_local_heads, max_seq_len, dataloader_generator):
+def get_pes(layer_pe, n_global_heads, n_local_heads, dataloader_generator):
     layer_pe_type = layer_pe['type']
     layer_pe_input = layer_pe['input']
     layer_pe_args = layer_pe['args']
@@ -532,20 +554,19 @@ def get_pes(layer_pe, n_global_heads, n_local_heads, max_seq_len, dataloader_gen
                 fix=True,
                 init_type=layer_pe_input)
     elif layer_pe_type == 'rotary':
-        if layer_pe_input == 'index':
-            layer_pos_emb = IndexPositionalEmbedding(
-                dim=dim_layerPE, max_seq_len=max_seq_len)
-            if n_local_heads > 0:
-                layer_pos_emb_local = IndexPositionalEmbedding(
-                    dim=dim_layerPE, max_seq_len=max_seq_len)
-        elif layer_pe_input == 'elapsed':
-            layer_pos_emb = ElapsedPositionalEmbedding(
-                dim=dim_layerPE, dataloader_generator=dataloader_generator)
-            if n_local_heads > 0:
-                layer_pos_emb_local = ElapsedPositionalEmbedding(
-                    dim=dim_layerPE, dataloader_generator=dataloader_generator)
-        else:
-            raise NotImplementedError
+        layer_pos_emb = Rotary(
+            dim=dim_layerPE,
+            n_heads=n_global_heads,
+            fix=True,
+            init_type=layer_pe_input
+        )
+        if n_local_heads > 0:
+            layer_pos_emb = Rotary(
+                dim=dim_layerPE,
+                n_heads=n_local_heads,
+                fix=True,
+                init_type=layer_pe_input
+            )
     elif layer_pe_type == 'spe':
         if layer_pe_input == 'index':
             num_sines = layer_pe_args['n_sines']

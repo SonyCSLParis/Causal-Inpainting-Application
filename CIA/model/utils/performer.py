@@ -21,6 +21,7 @@ class Performer_(nn.Module):
         heads,
         local_attn_heads=0,
         local_window_size=256,
+        fast_local_attn=None,
         causal=False,
         ff_mult=4,
         features=None,
@@ -51,7 +52,8 @@ class Performer_(nn.Module):
         self.dropout = nn.Dropout(emb_dropout)
         self.norm = nn.LayerNorm(dim)
 
-        self.performer = _Performer_(dim, depth, heads, local_attn_heads, local_window_size, causal, ff_mult,
+        self.performer = _Performer_(dim, depth, heads, local_attn_heads, local_window_size, fast_local_attn,
+                                     causal, ff_mult,
                                      features, feature_redraw_interval, execute_type, ff_chunks,
                                      generalized_attention, kernel_fn, use_scalenorm, use_rezero, ff_glu, ff_dropout,
                                      attn_dropout, cross_attend, no_projection, auto_check_redraw,
@@ -82,6 +84,7 @@ class _Performer_(nn.Module):
         heads,
         local_attn_heads=0,
         local_window_size=256,
+        fast_local_attn=None,
         causal=False,
         ff_mult=4,
         features=None,
@@ -126,6 +129,7 @@ class _Performer_(nn.Module):
         for _, local_heads in zip(range(depth), local_attn_heads):
             layers.append(nn.ModuleList([
                 wrapper_fn(SelfAttention_(dim, causal=causal, heads=heads, dim_head=dim_head, local_heads=local_heads,
+                                          fast_local_attn=fast_local_attn,
                                           local_window_size=local_window_size, features=features,
                                           generalized_attention=generalized_attention, kernel_fn=kernel_fn,
                                           dropout=attn_dropout, no_projection=no_projection,
