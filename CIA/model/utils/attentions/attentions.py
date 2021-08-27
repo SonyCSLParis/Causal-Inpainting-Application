@@ -236,14 +236,14 @@ class Attention_(nn.Module):
 
                 if pos_emb_input is not None:
                     if self.layer_pe_type in ['rototor', 'rototor_fix']:
-                        lpos_emb_q = self.layer_pos_emb(
+                        lpos_emb_q = self.layer_pos_emb_local(
                             pe_input=pos_emb_input, offset=ltheta_q)
-                        lpos_emb_k = self.layer_pos_emb(
+                        lpos_emb_k = self.layer_pos_emb_local(
                             pe_input=pos_emb_input, offset=None)
                         lq_rot = apply_rototor_pos_emb_(lq, lpos_emb_q)
                         lk_rot = apply_rototor_pos_emb_(lk, lpos_emb_k)
                     elif self.layer_pe_type == 'rotary':
-                        pos_emb = self.layer_pos_emb(pe_input=pos_emb_input)
+                        pos_emb = self.layer_pos_emb_local(pe_input=pos_emb_input)
                         lq, lk = apply_rotary_pos_emb_(lq, lk, pos_emb)
                         lq_rot = None
                         lk_rot = None
@@ -475,34 +475,36 @@ def get_N(q, k, v):
 
 def causal_linear_attention(q, k, q_rot, k_rot, v, local=None, eps=1e-12):
     if local is not None:
-        def pad_left(x, local):
-            output = torch.cat(
-                [torch.zeros_like(x[:, :, :local]), x[:, :, :-local]], dim=2)
-            return output
-        k_pad = pad_left(k, local)
-        v_pad = pad_left(v, local)
-        k_rot_pad = pad_left(k_rot, local)
+        # def pad_left(x, local):
+        #     output = torch.cat(
+        #         [torch.zeros_like(x[:, :, :local]), x[:, :, :-local]], dim=2)
+        #     return output
+        # take beginning of k and v
+        k_local = k[:, :, :-local]
+        v_local = v[:, :, :-local]
+        k_rot_local = k_rot[:, :, :-local]
+        # end of q
+        q_local = q[:, :, local:]
+        q_rot_local = q_rot[:, :, local:]
 
     if q_rot is None:
         N = get_N(q, k, v)
+        D = get_D(q, k)
         if local is not None:
-            N_padded = get_N(q, k_pad, v_pad)
-            N = N - N_padded
-            D = get_D(q, k)
-            D_padded = get_D(q, k_pad)
-            D_inv = 1. / (D - D_padded + eps)
-        else:
-            D_inv = 1. / (get_D(q, k) + eps)
+            N_shifted = get_N(q_local, k_local, v_local)
+            N[:, :, local:] = N[:, :, local:] - N_shifted
+            D_shifted = get_D(q_local, k_local)
+            D[:, :, local:] = D[:, :, local:] - D_shifted
+        D_inv = 1. / (D + eps)
     else:
         N = (get_N(q, k, v) + get_N(q_rot, k_rot, v))
+        D = get_D(q, k) + get_D(q_rot, k_rot)
         if local is not None:
-            N_padded = get_N(q, k_pad, v_pad) + get_N(q_rot, k_rot_pad, v_pad)
-            N = N - N_padded
-            D = get_D(q, k) + get_D(q_rot, k_rot)
-            D_padded = get_D(q, k_pad) + get_D(q_rot, k_rot_pad)
-            D_inv = 1. / (D - D_padded + eps)
-        else:
-            D_inv = 1. / (get_D(q, k) + get_D(q_rot, k_rot) + eps)
+            N_shifted = get_N(q_local, k_local, v_local) + get_N(q_rot_local, k_rot_local, v_local)
+            N[:, :, local:] = N[:, :, local:] - N_shifted
+            D_shifted = get_D(q_local, k_local) + get_D(q_rot_local, k_rot_local)
+            D[:, :, local:] = D[:, :, local:] - D_shifted
+        D_inv = 1. / (D + eps)
 
     # *2 pour être sûr ??
     # N = (2*get_N(q, k, v) + get_N(q_rot, k_rot, v))
