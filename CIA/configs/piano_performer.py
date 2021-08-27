@@ -59,8 +59,8 @@ config = {
     'decoder_kwargs': dict(
         d_model=512,
         n_head=8,
-        local_attn_heads=0,
-        fast_local_attn=False,
+        local_attn_heads=4,
+        fast_local_attn=True,
         num_decoder_layers=16,
         dropout=0.1,
         label_smoothing=False,
@@ -83,7 +83,7 @@ config = {
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  16,
+    'batch_size':                  2,
     'num_batches':                 32,
     'num_epochs':                  1500,
 
