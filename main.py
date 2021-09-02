@@ -27,6 +27,9 @@ from CIA.getters import get_dataloader_generator, get_data_processor, get_decode
 @click.option('-c', '--config', type=click.Path(exists=True))
 @click.option('-n', '--num_workers', type=int, default=0)
 def launcher(train, load, overfitted, config, num_workers):
+    # === Init process group
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = str(get_free_port())
 
     # === Set shared parameters
 
@@ -72,9 +75,6 @@ def launcher(train, load, overfitted, config, num_workers):
 
 def main(rank, train, load, overfitted, config, num_workers, world_size,
          model_dir):
-    # === Init process group
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = str(get_free_port())
     
     dist.init_process_group(backend='nccl', world_size=world_size, rank=rank)
     torch.cuda.set_device(rank)
