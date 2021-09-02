@@ -5,9 +5,13 @@ import torch
 import math
 
 class SinusoidalProgressBarEmbedding(BasePositionalEmbedding):
-    def __init__(self, positional_embedding_size, num_channels, 
-                 dataloader_generator, dropout, **kwargs):
-        super(SinusoidalProgressBarEmbedding, self).__init__()
+    def __init__(self, positional_embedding_size,
+                 num_channels, 
+                 dataloader_generator,
+                 dropout,
+                 expand_channels,
+                 **kwargs):
+        super(SinusoidalProgressBarEmbedding, self).__init__(expand_channels=expand_channels)
         assert positional_embedding_size % 2 == 0
         self.dataloader_generator = dataloader_generator
         self.positional_embedding_size = positional_embedding_size
@@ -17,6 +21,17 @@ class SinusoidalProgressBarEmbedding(BasePositionalEmbedding):
         
 
     def forward(self, x_embed, i=0, h=None, metadata_dict={}):
+        """[summary]
+
+        Args:
+            x_embed ([type]): (batch_size, num_tokens, embedding_dim)
+            i (int, optional): [description]. Defaults to 0.
+            h ([type], optional): [description]. Defaults to None.
+            metadata_dict (dict, optional): [description]. Defaults to {}.
+
+        Returns:
+            [type]: [description]
+        """
         assert i == 0
         if h is None:
             h = torch.zeros_like(x_embed[:, 0, 0])
@@ -29,7 +44,13 @@ class SinusoidalProgressBarEmbedding(BasePositionalEmbedding):
         
         x = metadata_dict['original_sequence']
         batch_size, num_events, num_channels = x.size()
-        # batch_size, num_tokens, embedding_dim = x_embed.size()
+        batch_size, num_tokens, embedding_dim = x_embed.size()
+        
+        # check that expand_channels is correctly set:
+        if self.expand_channels:
+            assert num_tokens == num_events * num_channels
+        else:
+            assert num_tokens == num_events
         
         
         elapsed_time = self.dataloader_generator.get_elapsed_time(
@@ -83,15 +104,18 @@ class SinusoidalProgressBarEmbedding(BasePositionalEmbedding):
         pe[:, :, 1::2] = torch.cos(elapsed_time * div_term)
         
         
-        pos_embedding = pe.repeat_interleave(
-            self.num_channels, dim=1
-        )
+        if self.expand_channels:
+            pos_embedding = pe.repeat_interleave(
+                self.num_channels, dim=1
+            )
 
         pos_embedding = self.dropout(pos_embedding)
         x_embed = torch.cat([x_embed, pos_embedding], dim=2)
         return x_embed, h
 
     def forward_step(self, x, i=0, h=None, metadata_dict={}):
+        if not self.expand_channels:
+            raise NotImplementedError
 
         assert 'decoding_start' in metadata_dict
         # time_shift must be the last feature

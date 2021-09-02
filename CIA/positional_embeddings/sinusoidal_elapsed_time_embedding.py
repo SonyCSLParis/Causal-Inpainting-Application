@@ -7,8 +7,8 @@ import math
 
 class SinusoidalElapsedTimeEmbedding(BasePositionalEmbedding):
     def __init__(self, positional_embedding_size, num_channels,
-                 dataloader_generator, dropout, **kwargs):
-        super(SinusoidalElapsedTimeEmbedding, self).__init__()
+                 dataloader_generator, dropout, expand_channels, **kwargs):
+        super(SinusoidalElapsedTimeEmbedding, self).__init__(expand_channels=expand_channels)
         assert positional_embedding_size % 2 == 0
         self.dataloader_generator = dataloader_generator
         self.positional_embedding_size = positional_embedding_size
@@ -76,12 +76,16 @@ class SinusoidalElapsedTimeEmbedding(BasePositionalEmbedding):
         div_term = div_term.unsqueeze(0).unsqueeze(0)
         pe[:, :, 0::2] = torch.sin(elapsed_time * div_term)
         pe[:, :, 1::2] = torch.cos(elapsed_time * div_term)
-
-        pos_embedding = pe.repeat_interleave(
-            self.num_channels, dim=1
-        )
+        
+        
+        if self.expand_channels:
+            pos_embedding = pe.repeat_interleave(
+                self.num_channels, dim=1
+            )
 
         if self.mask_positions:
+            if not self.expand_channels:
+                raise NotImplementedError
             masked_positions = metadata_dict['masked_positions']
             flattened_masked_positions = flatten(masked_positions)
             flattened_masked_positions = flattened_masked_positions.view(
@@ -100,6 +104,8 @@ class SinusoidalElapsedTimeEmbedding(BasePositionalEmbedding):
         return x_embed, h
 
     def forward_step(self, x, i=0, h=None, metadata_dict={}):
+        if not self.expand_channels:
+            raise NotImplementedError
 
         # time_shift must be the last feature
         assert self.dataloader_generator.features.index(

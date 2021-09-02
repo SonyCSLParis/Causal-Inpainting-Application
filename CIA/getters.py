@@ -121,22 +121,27 @@ def get_positional_embedding(dataloader_generator,
     base_positional_embedding_list = []
     for pe_name, pe_kwargs in positional_embedding_dict.items():
         if pe_name == 'sinusoidal_embedding':
-            num_tokens_max = (dataloader_generator.sequences_size *
-                              dataloader_generator.num_channels)
+            # compute num_tokens_max:
+            num_tokens_max = dataloader_generator.sequences_size + 1
+                
             base_pe: BasePositionalEmbedding = SinusoidalPositionalEmbedding(
                 positional_embedding_size=pe_kwargs[
                     'positional_embedding_size'],
                 num_tokens_max=num_tokens_max,
                 num_channels=pe_kwargs['num_channels'],
-                dropout=pe_kwargs['dropout'])
+                dropout=pe_kwargs['dropout'],
+                expand_channels=pe_kwargs['expand_channels']
+                )
         elif pe_name == 'channel_embedding':
             base_pe = ChannelEmbeddings(**pe_kwargs)
         elif pe_name == 'sinusoidal_elapsed_time_embedding':
             base_pe: BasePositionalEmbedding = SinusoidalElapsedTimeEmbedding(
-                dataloader_generator=dataloader_generator, **pe_kwargs)
+                dataloader_generator=dataloader_generator,
+                **pe_kwargs)
         elif pe_name == 'sinusoidal_progress_bar_embedding':
             base_pe: BasePositionalEmbedding = SinusoidalProgressBarEmbedding(
-                dataloader_generator=dataloader_generator, **pe_kwargs)
+                dataloader_generator=dataloader_generator,                
+                **pe_kwargs)
         else:
             raise NotImplementedError
         base_positional_embedding_list.append(base_pe)

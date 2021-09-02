@@ -2,10 +2,13 @@ from torch import nn
 
 
 class BasePositionalEmbedding(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, expand_channels) -> None:
         super().__init__()
         # BasePositionalEmbedding must define
         # positional_embedding_size
+        
+        self.expand_channels = expand_channels
+        # expand_channels is True if the BasePositionalEmbeddings are the one used in PIAv1 (one token is one channel)
 
     def forward(self, x_embed, i=0, h=None, metadata_dict={}):
         return x_embed, h
