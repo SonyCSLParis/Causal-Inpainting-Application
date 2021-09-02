@@ -108,6 +108,8 @@ class SinusoidalProgressBarEmbedding(BasePositionalEmbedding):
             pos_embedding = pe.repeat_interleave(
                 self.num_channels, dim=1
             )
+        else:
+            pos_embedding = pe
 
         pos_embedding = self.dropout(pos_embedding)
         x_embed = torch.cat([x_embed, pos_embedding], dim=2)
