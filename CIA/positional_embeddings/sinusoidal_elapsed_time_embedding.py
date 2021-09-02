@@ -82,6 +82,8 @@ class SinusoidalElapsedTimeEmbedding(BasePositionalEmbedding):
             pos_embedding = pe.repeat_interleave(
                 self.num_channels, dim=1
             )
+        else:
+            pos_embedding = pe
 
         if self.mask_positions:
             if not self.expand_channels:
