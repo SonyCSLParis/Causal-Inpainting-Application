@@ -19,6 +19,12 @@ def is_main_process():
     return dist.get_rank() == 0
 
 
+def get_free_port():
+    import socketserver
+    with socketserver.TCPServer(('localhost', 0), None) as s:
+        return s.server_address[1]
+    
+
 def all_reduce_scalar(scalar, average=True):
     t = torch.Tensor([scalar]).to(f'cuda:{dist.get_rank()}')
     dist.all_reduce(t)
