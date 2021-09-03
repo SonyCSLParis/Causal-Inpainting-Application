@@ -11,8 +11,7 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 import math
-from CIA.model.utils.positional_embeddings.apply_pe import apply_rotary_pos_emb_, apply_rototor_pos_emb_, \
-    apply_spe_pos_emb_
+from CIA.model.utils.positional_embeddings.apply_pe import apply_rotary_pos_emb_, apply_rototor_pos_emb_
 try:
     from apex import amp
     APEX_AVAILABLE = True
@@ -56,7 +55,8 @@ class Attention_(nn.Module):
         else:
             raise NotImplementedError
 
-        self.fast_attention = FastAttention_(causal)
+        if self.features_type is not None:
+            self.fast_attention = FastAttention_(causal)
 
         self.heads = heads
         # assert local_heads == 0, 'Dont use local attention, incompatible with recursive transfofos'
@@ -227,7 +227,7 @@ class Attention_(nn.Module):
         if not empty(lq):
             assert not cross_attend, 'local attention is not compatible with cross attention'
 
-            if self.fast_attention:
+            if (self.features_type is not None) and self.fast_local_attn:
                 if self.post_phi_layerPE:
                     if self.features_type == 'favor':
                         lq, lk = self.feature_map(lq, lk)
@@ -243,7 +243,8 @@ class Attention_(nn.Module):
                         lq_rot = apply_rototor_pos_emb_(lq, lpos_emb_q)
                         lk_rot = apply_rototor_pos_emb_(lk, lpos_emb_k)
                     elif self.layer_pe_type == 'rotary':
-                        pos_emb = self.layer_pos_emb_local(pe_input=pos_emb_input)
+                        pos_emb = self.layer_pos_emb_local(
+                            pe_input=pos_emb_input)
                         lq, lk = apply_rotary_pos_emb_(lq, lk, pos_emb)
                         lq_rot = None
                         lk_rot = None
@@ -267,7 +268,7 @@ class Attention_(nn.Module):
                                                        kwargs['states'], kwargs['inferring_states'], horizon=256)
             else:
                 out = self.local_attn(lq, lk, lv, input_mask=mask)
-                state_local = None
+                state = None
             attn_outs.append(out)
 
         out = torch.cat(attn_outs, dim=1)
@@ -353,7 +354,8 @@ class FastAttention_(nn.Module):
                 q, k, q_rot, k_rot, v, states)
         else:
             if inferring_states:
-                out, states = infer_hidden_states(q, k, q_rot, k_rot, v)
+                out, states = infer_hidden_states(
+                    q, k, q_rot, k_rot, v, horizon)
             else:
                 attn_fn = linear_attention if not self.causal else self.causal_linear_fn
                 out = attn_fn(q, k, q_rot, k_rot, v, local=horizon)
@@ -364,7 +366,6 @@ class FastAttention_(nn.Module):
 # inefficient causal linear attention, without cuda code,
 # (used for parallel inference of hidden states in recurrent mode)
 def infer_hidden_states(q, k, q_rot, k_rot, v, chunk_size=128, eps=1e-12):
-    raise NotImplementedError("Need the local version")
     last_k_cumsum = 0
     last_context_cumsum = 0
     last_k_cumsum_rot = 0
@@ -412,7 +413,6 @@ def infer_hidden_states(q, k, q_rot, k_rot, v, chunk_size=128, eps=1e-12):
 
 
 def recursive_attention_step(q, k, q_rot, k_rot, v, states, eps=1e-12):
-    raise NotImplementedError
     k_cumsum = states['Zs'].unsqueeze(2) + k
     k_cumsum_rot = states['Zs_rot'].unsqueeze(2) + k_rot
     D = torch.einsum('...nd,...nd->...n', q,
@@ -475,17 +475,15 @@ def get_N(q, k, v):
 
 def causal_linear_attention(q, k, q_rot, k_rot, v, local=None, eps=1e-12):
     if local is not None:
-        # def pad_left(x, local):
-        #     output = torch.cat(
-        #         [torch.zeros_like(x[:, :, :local]), x[:, :, :-local]], dim=2)
-        #     return output
         # take beginning of k and v
         k_local = k[:, :, :-local]
         v_local = v[:, :, :-local]
-        k_rot_local = k_rot[:, :, :-local]
+        if k_rot is not None:
+            k_rot_local = k_rot[:, :, :-local]
         # end of q
         q_local = q[:, :, local:]
-        q_rot_local = q_rot[:, :, local:]
+        if q_rot is not None:
+            q_rot_local = q_rot[:, :, local:]
 
     if q_rot is None:
         N = get_N(q, k, v)
@@ -500,16 +498,22 @@ def causal_linear_attention(q, k, q_rot, k_rot, v, local=None, eps=1e-12):
         N = (get_N(q, k, v) + get_N(q_rot, k_rot, v))
         D = get_D(q, k) + get_D(q_rot, k_rot)
         if local is not None:
-            N_shifted = get_N(q_local, k_local, v_local) + get_N(q_rot_local, k_rot_local, v_local)
+            N_shifted = get_N(q_local, k_local, v_local) + \
+                get_N(q_rot_local, k_rot_local, v_local)
             N[:, :, local:] = N[:, :, local:] - N_shifted
-            D_shifted = get_D(q_local, k_local) + get_D(q_rot_local, k_rot_local)
+            D_shifted = get_D(q_local, k_local) + \
+                get_D(q_rot_local, k_rot_local)
             D[:, :, local:] = D[:, :, local:] - D_shifted
+        if not torch.all(D > 0):
+            raise Exception('D > 0')
         D_inv = 1. / (D + eps)
 
     # *2 pour être sûr ??
     # N = (2*get_N(q, k, v) + get_N(q_rot, k_rot, v))
     # D_inv = 1. / (2*get_D(q, k) + get_D(q_rot, k_rot) + eps)
     out = torch.einsum('...nd,...n->...nd', N, D_inv)
+    if torch.any(torch.isnan(out)):
+        raise Exception('NaN in out')
     return out
 
 

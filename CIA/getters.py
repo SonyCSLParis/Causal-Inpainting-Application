@@ -174,7 +174,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         # number of random features, if not set, will default to (d * log(d)), where d is the dimension of each head
         features=features,
         # how frequently to redraw the projection matrix, the more frequent, the slower the training
-        feature_redraw_interval=1000,
+        feature_redraw_interval=100000,
         # defaults to softmax approximation, but can be set to True for generalized attention
         generalized_attention=False,
         # the kernel function to be used, if generalized attention is turned on, defaults to Relu
