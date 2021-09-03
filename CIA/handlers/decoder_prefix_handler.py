@@ -126,7 +126,7 @@ class DecoderPrefixHandler(Handler):
             # i corresponds to the position of the token BEING generated
             for event_index in range(decoding_start_event, num_events):
                 for channel_index in range(self.num_channels_target):
-                    # TODO(Leo): BIGGESTBUG FIX EVER
+
                     metadata_dict['original_sequence'] = x
 
                     decoding_index = event_index * self.num_channels_target + channel_index
@@ -189,6 +189,7 @@ class DecoderPrefixHandler(Handler):
         x[:, decoding_start_event:] = 0  # ensure we don't cheat!
 
         # get hidden states
+        metadata_dict['original_sequence'] = x
         out = self.model.module.infer_hidden_states(
             x, metadata_dict, decoding_start_index)
         states = dict(Zs=out['Zs'], Ss=out['Ss'],
