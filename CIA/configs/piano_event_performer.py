@@ -58,8 +58,9 @@ config = {
     'decoder_kwargs': dict(
         d_model=512,
         n_head=8,
-        local_attn_heads=0,
-        fast_local_attn=False,
+        local_attn_heads=4,
+        fast_local_attn=False,        
+        local_window_size=256,
         num_decoder_layers=16,
         dropout=0.1,
         label_smoothing=False,
@@ -68,17 +69,18 @@ config = {
             # 'args': dict(n_features=256),  # 'favor args
             'args': dict(),  # elu args
         },
+        # execute_type='residual',  # 'reversible' (Reformer paper), 'gated' 
         execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
-        # layer_pe=None
-        layer_pe=dict(
-            type='rototor',  # 'rotary', 'spe', 'rototor', 'rototor_fix'
-            input='elapsed',  # 'index', 'elapsed'
-            args=dict(
-                gated_layerSPE=False,
-                post_phi_layerPE=True,
-                theta_q=False,
-            )
-        )
+        layer_pe=None
+        # layer_pe=dict(
+        #     type='rototor',  # 'rotary', 'spe', 'rototor', 'rototor_fix'
+        #     input='elapsed',  # 'index', 'elapsed'
+        #     args=dict(
+        #         gated_layerSPE=False,
+        #         post_phi_layerPE=True,
+        #         theta_q=False,
+        #     )
+        # )
     ),
     # ======== Training ========
     'lr':                          1e-4,

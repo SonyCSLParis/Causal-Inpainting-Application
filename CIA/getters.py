@@ -1,4 +1,5 @@
 
+from CIA.model.causal_events_model import CausalEventsModel
 from torch import nn
 from CIA.model.utils.performer import Performer_
 from CIA.model.causal_model import CausalModel
@@ -196,13 +197,26 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
         # No local attention. With: decoder_kwargs['n_head']//2 ??
         local_attn_heads=decoder_kwargs['local_attn_heads'],
-        local_window_size=256,        # window size of local attention,
+        local_window_size=decoder_kwargs['local_window_size'],        # window size of local attention,
         fast_local_attn=decoder_kwargs['fast_local_attn'],
         layer_pe=layer_pe,
         dataloader_generator=dataloader_generator
     )
 
-    decoder = CausalModel(
+    # decoder = CausalModel(
+    #     data_processor=data_processor,
+    #     dataloader_generator=dataloader_generator,
+    #     positional_embedding=positional_embedding,
+    #     sos_embedding=sos_embedding,
+    #     d_model=decoder_kwargs['d_model'],
+    #     num_channels_decoder=num_channels_decoder,
+    #     num_events_decoder=num_events_decoder,
+    #     label_smoothing=decoder_kwargs['label_smoothing'],
+    #     transformer=transformer,
+    #     pe_input_type=pe_input_type)
+    
+    # TODO(gaetan) write getter
+    decoder = CausalEventsModel(
         data_processor=data_processor,
         dataloader_generator=dataloader_generator,
         positional_embedding=positional_embedding,
