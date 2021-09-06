@@ -1,5 +1,6 @@
 
 from CIA.model.causal_events_model import CausalEventsModel
+from CIA.model.causal_events_model_full_cat import CausalEventsModelFullCat
 from torch import nn
 from CIA.model.utils.performer import Performer_
 from CIA.model.causal_model import CausalModel
@@ -171,6 +172,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
     else:
         pe_input_type = None
 
+    # TODO max_sequence_length is WRONG when channels are not expanded
     transformer = Performer_(
         max_seq_len=max_seq_len,    # max sequence length
         dim=decoder_kwargs['d_model'],                  # dimension
@@ -216,7 +218,8 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
     #     pe_input_type=pe_input_type)
     
     # TODO(gaetan) write getter
-    decoder = CausalEventsModel(
+    decoder = CausalEventsModelFullCat(
+    # decoder = CausalEventsModel(
         data_processor=data_processor,
         dataloader_generator=dataloader_generator,
         positional_embedding=positional_embedding,
