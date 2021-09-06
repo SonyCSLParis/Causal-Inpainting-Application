@@ -1,4 +1,6 @@
 
+from CIA.model.causal_events_model import CausalEventsModel
+from CIA.model.causal_events_model_full_cat import CausalEventsModelFullCat
 from torch import nn
 from CIA.model.utils.performer import Performer_
 from CIA.model.causal_model import CausalModel
@@ -121,22 +123,27 @@ def get_positional_embedding(dataloader_generator,
     base_positional_embedding_list = []
     for pe_name, pe_kwargs in positional_embedding_dict.items():
         if pe_name == 'sinusoidal_embedding':
-            num_tokens_max = (dataloader_generator.sequences_size *
-                              dataloader_generator.num_channels)
+            # compute num_tokens_max:
+            num_tokens_max = dataloader_generator.sequences_size + 1
+                
             base_pe: BasePositionalEmbedding = SinusoidalPositionalEmbedding(
                 positional_embedding_size=pe_kwargs[
                     'positional_embedding_size'],
                 num_tokens_max=num_tokens_max,
                 num_channels=pe_kwargs['num_channels'],
-                dropout=pe_kwargs['dropout'])
+                dropout=pe_kwargs['dropout'],
+                expand_channels=pe_kwargs['expand_channels']
+                )
         elif pe_name == 'channel_embedding':
             base_pe = ChannelEmbeddings(**pe_kwargs)
         elif pe_name == 'sinusoidal_elapsed_time_embedding':
             base_pe: BasePositionalEmbedding = SinusoidalElapsedTimeEmbedding(
-                dataloader_generator=dataloader_generator, **pe_kwargs)
+                dataloader_generator=dataloader_generator,
+                **pe_kwargs)
         elif pe_name == 'sinusoidal_progress_bar_embedding':
             base_pe: BasePositionalEmbedding = SinusoidalProgressBarEmbedding(
-                dataloader_generator=dataloader_generator, **pe_kwargs)
+                dataloader_generator=dataloader_generator,                
+                **pe_kwargs)
         else:
             raise NotImplementedError
         base_positional_embedding_list.append(base_pe)
@@ -165,6 +172,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
     else:
         pe_input_type = None
 
+    # TODO max_sequence_length is WRONG when channels are not expanded
     transformer = Performer_(
         max_seq_len=max_seq_len,    # max sequence length
         dim=decoder_kwargs['d_model'],                  # dimension
@@ -191,13 +199,27 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
         # No local attention. With: decoder_kwargs['n_head']//2 ??
         local_attn_heads=decoder_kwargs['local_attn_heads'],
-        local_window_size=256,        # window size of local attention,
+        local_window_size=decoder_kwargs['local_window_size'],        # window size of local attention,
         fast_local_attn=decoder_kwargs['fast_local_attn'],
         layer_pe=layer_pe,
         dataloader_generator=dataloader_generator
     )
 
-    decoder = CausalModel(
+    # decoder = CausalModel(
+    #     data_processor=data_processor,
+    #     dataloader_generator=dataloader_generator,
+    #     positional_embedding=positional_embedding,
+    #     sos_embedding=sos_embedding,
+    #     d_model=decoder_kwargs['d_model'],
+    #     num_channels_decoder=num_channels_decoder,
+    #     num_events_decoder=num_events_decoder,
+    #     label_smoothing=decoder_kwargs['label_smoothing'],
+    #     transformer=transformer,
+    #     pe_input_type=pe_input_type)
+    
+    # TODO(gaetan) write getter
+    decoder = CausalEventsModelFullCat(
+    # decoder = CausalEventsModel(
         data_processor=data_processor,
         dataloader_generator=dataloader_generator,
         positional_embedding=positional_embedding,
