@@ -75,7 +75,6 @@ def launcher(train, load, overfitted, config, num_workers):
 
 def main(rank, train, load, overfitted, config, num_workers, world_size,
          model_dir):
-    
     dist.init_process_group(backend='nccl', world_size=world_size, rank=rank)
     torch.cuda.set_device(rank)
     device = f'cuda:{rank}'
@@ -172,15 +171,15 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
 
     ############################################################
     # inpainting
-    # start_time = time.time()
-    # x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint(
-    #     x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
-    # end_time = time.time()
-    ############################################################
     start_time = time.time()
-    x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint_non_optimized(
+    x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint(
         x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
     end_time = time.time()
+    ############################################################
+    # start_time = time.time()
+    # x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint_non_optimized(
+    #     x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
+    # end_time = time.time()
     ############################################################
     x_inpainted = data_processor.postprocess(
         x_gen,

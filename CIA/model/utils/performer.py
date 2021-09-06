@@ -25,7 +25,7 @@ class Performer_(nn.Module):
         causal=False,
         ff_mult=4,
         features=None,
-        feature_redraw_interval=1000,
+        feature_redraw_interval=100000,
         execute_type=None,
         ff_chunks=1,
         ff_glu=False,
@@ -88,7 +88,7 @@ class _Performer_(nn.Module):
         causal=False,
         ff_mult=4,
         features=None,
-        feature_redraw_interval=1000,
+        feature_redraw_interval=100000,
         execute_type=None,
         ff_chunks=1,
         generalized_attention=False,
@@ -134,7 +134,7 @@ class _Performer_(nn.Module):
                                           generalized_attention=generalized_attention, kernel_fn=kernel_fn,
                                           dropout=attn_dropout, no_projection=no_projection,
                                           qkv_bias=qkv_bias, attn_out_bias=attn_out_bias,
-                                          layer_pe=layer_pe, max_seq_len=max_seq_len,
+                                          layer_pe=layer_pe,
                                           dataloader_generator=dataloader_generator)),
                 wrapper_fn(Chunk(ff_chunks, FeedForward(
                     dim, mult=ff_mult, dropout=ff_dropout, glu=ff_glu), along_dim=1))

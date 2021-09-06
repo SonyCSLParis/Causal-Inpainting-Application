@@ -63,7 +63,7 @@ class _ReversibleFunction_(Function):
     @staticmethod
     def forward(ctx, x, blocks, args):
         ctx.args = args
-        for layer_ind, (block, kwarg) in enumerate(zip(blocks, args)):
+        for block, kwarg in zip(blocks, args):
             # extract the states for the current layer
             kwargs_layer = dict(f_args=kwarg['f_args'], g_args=kwarg['g_args'])
             x, _ = block(x, **kwargs_layer)
@@ -81,8 +81,8 @@ class _ReversibleFunction_(Function):
         return dy, None, None
 
     @staticmethod
-    def forward_with_states(ctx, x, blocks, args):
-        ctx.args = args
+    def forward_with_states(x, blocks, args):
+        # ctx.args = args
         states = []
         for layer_ind, (block, kwarg) in enumerate(zip(blocks, args)):
             # extract the states for the current layer
@@ -94,8 +94,8 @@ class _ReversibleFunction_(Function):
             x, state = block(x, **kwargs_layer)
             if state is not None:
                 states.append(state)
-        ctx.y = x.detach()
-        ctx.blocks = blocks
+        # ctx.y = x.detach()
+        # ctx.blocks = blocks
         # can't return a list in torch Function
         Zs = torch.stack([st['Z'] for st in states], dim=-1)
         Ss = torch.stack([st['S'] for st in states], dim=-1)
