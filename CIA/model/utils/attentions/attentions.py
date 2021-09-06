@@ -239,14 +239,14 @@ class Attention_(nn.Module):
 
                 if pos_emb_input is not None:
                     if self.layer_pe_type in ['rototor', 'rototor_fix']:
-                        lpos_emb_q = self.layer_pos_emb(
+                        lpos_emb_q = self.layer_pos_emb_local(
                             pe_input=pos_emb_input, offset=ltheta_q)
-                        lpos_emb_k = self.layer_pos_emb(
+                        lpos_emb_k = self.layer_pos_emb_local(
                             pe_input=pos_emb_input, offset=None)
                         lq_rot = apply_rototor_pos_emb_(lq, lpos_emb_q)
                         lk_rot = apply_rototor_pos_emb_(lk, lpos_emb_k)
                     elif self.layer_pe_type == 'rotary':
-                        pos_emb = self.layer_pos_emb(pe_input=pos_emb_input)
+                        pos_emb = self.layer_pos_emb_local(pe_input=pos_emb_input)
                         lq, lk = apply_rotary_pos_emb_(lq, lk, pos_emb)
                         lq_rot = None
                         lk_rot = None
@@ -365,7 +365,7 @@ class FastAttention_(nn.Module):
 class LocalAttentionLinear(nn.Module):
     def __init__(self):
         super().__init__()
-
+    # TODO hardcoded spans
     def forward(self, q, k, q_rot, k_rot, v, eps=1e-12):
         k_cumsum = k.cumsum(dim=-2)
         k_cumsum[:, :, 256:] = k_cumsum[:, :, 256:] - k_cumsum[:, :, :-256]
