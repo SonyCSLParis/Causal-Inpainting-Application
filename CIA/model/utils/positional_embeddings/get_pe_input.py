@@ -2,6 +2,8 @@ import torch
 
 
 def get_pe_input(dataloader_generator, x_embed, h, metadata_dict, pe_input_type):
+    # TODO take into account if channels are exapnded or not
+    raise NotImplementedError
     if pe_input_type == 'index':
         length = x_embed.size(1)
         batch_size = x_embed.size(0)
@@ -37,6 +39,11 @@ def get_pe_input(dataloader_generator, x_embed, h, metadata_dict, pe_input_type)
         # h = h * 100
         if torch.any(elapsed_time < 0):
             print('stop')
-        elapsed_time_channelized = elapsed_time.repeat_interleave(num_channels, dim=1)
+            
+        # TODO HARDCODED
+        #  TODO remove comment
+        # elapsed_time_channelized = elapsed_time.repeat_interleave(num_channels, dim=1)
+        elapsed_time_channelized = elapsed_time
+        
         pe_input = elapsed_time_channelized
     return pe_input
