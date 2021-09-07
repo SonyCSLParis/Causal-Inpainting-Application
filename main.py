@@ -166,20 +166,20 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
             original_x, num_events_middle=exemple['num_events_middle'])
 
     # reconstruct original sequence to check post-processing
-    x_postprocess = data_processor.postprocess(
-        x, decoding_end=metadata_dict['decoding_end'], metadata_dict=metadata_dict)
+    # x_postprocess = data_processor.postprocess(
+    #     x, decoding_end=metadata_dict['decoding_end'], metadata_dict=metadata_dict)
 
     ############################################################
     # inpainting
-    start_time = time.time()
-    x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint(
-        x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
-    end_time = time.time()
-    ############################################################
     # start_time = time.time()
-    # x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint_non_optimized(
+    # x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint(
     #     x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
     # end_time = time.time()
+    ############################################################
+    start_time = time.time()
+    x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint_non_optimized(
+        x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
+    end_time = time.time()
     ############################################################
     x_inpainted = data_processor.postprocess(
         x_gen,
@@ -204,10 +204,10 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
         path_no_extension = f'{decoder_handler.model_dir}/generations/{timestamp}_{k}_original'
         decoder_handler.dataloader_generator.write(tensor_score,
                                                    path_no_extension)
-    for k, tensor_score in enumerate(x_postprocess):
-        path_no_extension = f'{decoder_handler.model_dir}/generations/{timestamp}_{k}_original_postprocess'
-        decoder_handler.dataloader_generator.write(tensor_score,
-                                                   path_no_extension)
+    # for k, tensor_score in enumerate(x_postprocess):
+    #     path_no_extension = f'{decoder_handler.model_dir}/generations/{timestamp}_{k}_original_postprocess'
+    #     decoder_handler.dataloader_generator.write(tensor_score,
+    #                                                path_no_extension)
 
 
 if __name__ == '__main__':
