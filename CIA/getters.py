@@ -1,4 +1,4 @@
-
+from CIA.model.utils.catformer import Catformer
 from CIA.model.causal_events_model import CausalEventsModel
 from CIA.model.causal_events_model_full_cat import CausalEventsModelFullCat
 from torch import nn
@@ -125,7 +125,7 @@ def get_positional_embedding(dataloader_generator,
         if pe_name == 'sinusoidal_embedding':
             # compute num_tokens_max:
             num_tokens_max = dataloader_generator.sequences_size + 1
-                
+
             base_pe: BasePositionalEmbedding = SinusoidalPositionalEmbedding(
                 positional_embedding_size=pe_kwargs[
                     'positional_embedding_size'],
@@ -142,7 +142,7 @@ def get_positional_embedding(dataloader_generator,
                 **pe_kwargs)
         elif pe_name == 'sinusoidal_progress_bar_embedding':
             base_pe: BasePositionalEmbedding = SinusoidalProgressBarEmbedding(
-                dataloader_generator=dataloader_generator,                
+                dataloader_generator=dataloader_generator,
                 **pe_kwargs)
         else:
             raise NotImplementedError
@@ -172,38 +172,59 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
     else:
         pe_input_type = None
 
-    # TODO max_sequence_length is WRONG when channels are not expanded
-    transformer = Performer_(
-        max_seq_len=max_seq_len,    # max sequence length
-        dim=decoder_kwargs['d_model'],                  # dimension
-        depth=decoder_kwargs['num_decoder_layers'],     # layers
-        heads=decoder_kwargs['n_head'],                 # heads
-        causal=True,                  # auto-regressive or not
-        # number of random features, if not set, will default to (d * log(d)), where d is the dimension of each head
-        features=features,
-        # how frequently to redraw the projection matrix, the more frequent, the slower the training
-        feature_redraw_interval=100000,
-        # defaults to softmax approximation, but can be set to True for generalized attention
-        generalized_attention=False,
-        # the kernel function to be used, if generalized attention is turned on, defaults to Relu
-        kernel_fn=nn.ReLU(),
-        # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
-        execute_type=decoder_kwargs['execute_type'],
-        ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
-        use_scalenorm=False,          # use scale norm, from 'Transformers without Tears' paper
-        use_rezero=False,             # use rezero, from 'Rezero is all you need' paper
-        ff_glu=True,                  # use GLU variant for feedforward
-        emb_dropout=decoder_kwargs['dropout'],          # embedding dropout
-        # feedforward dropout
-        ff_dropout=decoder_kwargs['dropout'],
-        attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
-        # No local attention. With: decoder_kwargs['n_head']//2 ??
-        local_attn_heads=decoder_kwargs['local_attn_heads'],
-        local_window_size=decoder_kwargs['local_window_size'],        # window size of local attention,
-        fast_local_attn=decoder_kwargs['fast_local_attn'],
-        layer_pe=layer_pe,
-        dataloader_generator=dataloader_generator
-    )
+    if decoder_kwargs['type'] == 'performer':
+        # TODO max_sequence_length is WRONG when channels are not expanded
+        transformer = Performer_(
+            max_seq_len=max_seq_len,    # max sequence length
+            dim=decoder_kwargs['d_model'],                  # dimension
+            depth=decoder_kwargs['num_decoder_layers'],     # layers
+            heads=decoder_kwargs['n_head'],                 # heads
+            causal=True,                  # auto-regressive or not
+            features=features,
+            # how frequently to redraw the projection matrix, the more frequent, the slower the training
+            feature_redraw_interval=100000,
+            # defaults to softmax approximation, but can be set to True for generalized attention
+            generalized_attention=False,
+            # the kernel function to be used, if generalized attention is turned on, defaults to Relu
+            kernel_fn=nn.ReLU(),
+            # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
+            execute_type=decoder_kwargs['execute_type'],
+            ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
+            use_scalenorm=False,          # use scale norm, from 'Transformers without Tears' paper
+            use_rezero=False,             # use rezero, from 'Rezero is all you need' paper
+            ff_glu=True,                  # use GLU variant for feedforward
+            emb_dropout=decoder_kwargs['dropout'],          # embedding dropout
+            # feedforward dropout
+            ff_dropout=decoder_kwargs['dropout'],
+            attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
+            # No local attention. With: decoder_kwargs['n_head']//2 ??
+            local_attn_heads=decoder_kwargs['local_attn_heads'],
+            local_window_size=decoder_kwargs['local_window_size'],        # window size of local attention,
+            fast_local_attn=decoder_kwargs['fast_local_attn'],
+            layer_pe=layer_pe,
+            dataloader_generator=dataloader_generator
+        )
+    elif decoder_kwargs['type'] == 'catformer':
+        transformer = Catformer(
+            dim_first_layer=decoder_kwargs['d_model'],      # dimension
+            expansion_factor_attn=2,                        # http://proceedings.mlr.press/v139/davis21a/davis21a-supp.pdf
+            expansion_factor_ff=4,
+            depth=decoder_kwargs['num_decoder_layers'],     # layers
+            heads=decoder_kwargs['n_head'],                 # heads
+            features=features,
+            ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
+            ff_glu=True,                  # use GLU variant for feedforward
+            emb_dropout=decoder_kwargs['dropout'],          # embedding dropout
+            ff_dropout=decoder_kwargs['dropout'],           # feedforward dropout
+            attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
+            local_attn_heads=decoder_kwargs['local_attn_heads'],
+            local_window_size=decoder_kwargs['local_window_size'],        # window size of local attention,
+            fast_local_attn=decoder_kwargs['fast_local_attn'],
+            layer_pe=layer_pe,
+            dataloader_generator=dataloader_generator
+        )
+    else:
+        raise NotImplementedError
 
     # decoder = CausalModel(
     #     data_processor=data_processor,
@@ -216,7 +237,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
     #     label_smoothing=decoder_kwargs['label_smoothing'],
     #     transformer=transformer,
     #     pe_input_type=pe_input_type)
-    
+
     # TODO(gaetan) write getter
     decoder = CausalEventsModelFullCat(
     # decoder = CausalEventsModel(

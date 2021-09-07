@@ -1,3 +1,4 @@
+from numpy import inner
 from CIA.model.utils.positional_embeddings.pe_modules.rotary import Rotary
 from CIA.model.utils.positional_embeddings.pe_modules.rototor import Rototor
 from CIA.model.utils.positional_embeddings.pe_modules.index_spe import SineSPE
@@ -29,6 +30,7 @@ class Attention_(nn.Module):
         local_heads=0,
         fast_local_attn=None,
         local_window_size=256,
+        expansion_factor_attn=None,
         features=None,
         generalized_attention=False,
         kernel_fn=nn.ReLU(),
@@ -43,6 +45,8 @@ class Attention_(nn.Module):
         assert dim % heads == 0, 'dimension must be divisible by number of heads'
         self.dim_head = default(dim_head, dim // heads)
         inner_dim = dim_head * heads
+        if expansion_factor_attn is not None:
+            inner_dim = expansion_factor_attn * inner_dim
         self.features_type = features['type']
         if self.features_type is None:
             pass

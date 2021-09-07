@@ -29,22 +29,21 @@ config = {
         sinusoidal_embedding=dict(
             positional_embedding_size=128,
             num_channels=4,
-            dropout=0.
+            dropout=0.,
+            expand_channels=False
         ),
         sinusoidal_elapsed_time_embedding=dict(
             positional_embedding_size=128,
             num_channels=4,
             dropout=0.,
-            mask_positions=False
-        ),
-        channel_embedding=dict(
-            positional_embedding_size=12,
-            num_channels=4
+            mask_positions=False,
+            expand_channels=False
         ),
         sinusoidal_progress_bar_embedding=dict(
             positional_embedding_size=128,
             num_channels=4,
             dropout=0.,
+            expand_channels=False
         )
     ),
 
@@ -57,12 +56,13 @@ config = {
 
     # --- Decoder ---
     'decoder_kwargs': dict(
-        type='performer',
+        type='catformer',
         d_model=64,
         n_head=8,
         local_attn_heads=4,
         fast_local_attn=False,
-        num_decoder_layers=16,
+        local_window_size=64,       # works with batch_size = 8
+        num_decoder_layers=8,
         dropout=0.1,
         label_smoothing=False,
         features={
@@ -84,7 +84,7 @@ config = {
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  8,
+    'batch_size':                  2,
     'num_batches':                 32,
     'num_epochs':                  1500,
 

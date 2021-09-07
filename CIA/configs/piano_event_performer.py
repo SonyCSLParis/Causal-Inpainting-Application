@@ -43,7 +43,7 @@ config = {
             positional_embedding_size=128,
             num_channels=4,
             dropout=0.,
-            expand_channels=False    
+            expand_channels=False
         )
     ),
 
@@ -59,7 +59,7 @@ config = {
         d_model=512,
         n_head=8,
         local_attn_heads=4,
-        fast_local_attn=False,        
+        fast_local_attn=False,
         # local_window_size=256,
         # num_decoder_layers=16,
         local_window_size=64, # works with batch_size = 8
@@ -71,7 +71,7 @@ config = {
             # 'args': dict(n_features=256),  # 'favor args
             'args': dict(),  # elu args
         },
-        execute_type='gated',  # 'reversible' (Reformer paper), 'gated' 
+        execute_type='gated',  # 'reversible' (Reformer paper), 'gated'
         # execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
         layer_pe=None
         # layer_pe=dict(
