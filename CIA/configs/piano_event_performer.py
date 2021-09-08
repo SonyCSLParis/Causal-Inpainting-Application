@@ -58,6 +58,8 @@ config = {
     
     # --- Decoder ---
     'decoder_kwargs': dict(
+        # autoregressive_decoding only needed if handler_type == 'event
+        autoregressive_decoding='fullcat', # fullcat | mlp | None 
         d_model=512,
         n_head=8,
         local_attn_heads=4,

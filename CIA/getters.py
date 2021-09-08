@@ -149,7 +149,7 @@ def get_positional_embedding(dataloader_generator,
 
 # todo write Decoder base class
 def get_decoder(data_processor, dataloader_generator, positional_embedding,
-                sos_embedding, decoder_kwargs, training_phase):
+                sos_embedding, decoder_kwargs, training_phase, handler_type):
     num_channels_decoder = data_processor.num_channels
     num_events_decoder = data_processor.num_events
     max_seq_len = data_processor.num_tokens
@@ -200,32 +200,48 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         fast_local_attn=decoder_kwargs['fast_local_attn'],
         layer_pe=layer_pe,
         dataloader_generator=dataloader_generator)
-
-    # decoder = CausalModel(
-    #     data_processor=data_processor,
-    #     dataloader_generator=dataloader_generator,
-    #     positional_embedding=positional_embedding,
-    #     sos_embedding=sos_embedding,
-    #     d_model=decoder_kwargs['d_model'],
-    #     num_channels_decoder=num_channels_decoder,
-    #     num_events_decoder=num_events_decoder,
-    #     label_smoothing=decoder_kwargs['label_smoothing'],
-    #     transformer=transformer,
-    #     pe_input_type=pe_input_type)
-
-    # TODO(gaetan) write getter
-    decoder = CausalEventsModelFullCat(
-    # decoder = CausalEventsModel(
-        data_processor=data_processor,
-        dataloader_generator=dataloader_generator,
-        positional_embedding=positional_embedding,
-        sos_embedding=sos_embedding,
-        d_model=decoder_kwargs['d_model'],
-        num_channels_decoder=num_channels_decoder,
-        num_events_decoder=num_events_decoder,
-        label_smoothing=decoder_kwargs['label_smoothing'],
-        transformer=transformer,
-        pe_input_type=pe_input_type)
+    
+    if handler_type == 'channel':
+        decoder = CausalModel(
+            data_processor=data_processor,
+            dataloader_generator=dataloader_generator,
+            positional_embedding=positional_embedding,
+            sos_embedding=sos_embedding,
+            d_model=decoder_kwargs['d_model'],
+            num_channels_decoder=num_channels_decoder,
+            num_events_decoder=num_events_decoder,
+            label_smoothing=decoder_kwargs['label_smoothing'],
+            transformer=transformer,
+            pe_input_type=pe_input_type)
+    elif handler_type == 'event':
+        autoregressive_decoding_type = decoder_kwargs['autoregressive_decoding']
+        if autoregressive_decoding_type == 'fullcat':
+            decoder = CausalEventsModelFullCat(
+            # decoder = CausalEventsModel(
+                data_processor=data_processor,
+                dataloader_generator=dataloader_generator,
+                positional_embedding=positional_embedding,
+                sos_embedding=sos_embedding,
+                d_model=decoder_kwargs['d_model'],
+                num_channels_decoder=num_channels_decoder,
+                num_events_decoder=num_events_decoder,
+                label_smoothing=decoder_kwargs['label_smoothing'],
+                transformer=transformer,
+                pe_input_type=pe_input_type)
+        elif handler_type == 'mlp':
+            decoder = CausalEventsModel(
+                data_processor=data_processor,
+                dataloader_generator=dataloader_generator,
+                positional_embedding=positional_embedding,
+                sos_embedding=sos_embedding,
+                d_model=decoder_kwargs['d_model'],
+                num_channels_decoder=num_channels_decoder,
+                num_events_decoder=num_events_decoder,
+                label_smoothing=decoder_kwargs['label_smoothing'],
+                transformer=transformer,
+                pe_input_type=pe_input_type)
+        else:
+            raise NotImplementedError        
 
     return decoder
 
