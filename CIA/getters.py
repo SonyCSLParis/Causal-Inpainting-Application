@@ -217,7 +217,6 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         autoregressive_decoding_type = decoder_kwargs['autoregressive_decoding']
         if autoregressive_decoding_type == 'fullcat':
             decoder = CausalEventsModelFullCat(
-            # decoder = CausalEventsModel(
                 data_processor=data_processor,
                 dataloader_generator=dataloader_generator,
                 positional_embedding=positional_embedding,
@@ -242,6 +241,8 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
                 pe_input_type=pe_input_type)
         else:
             raise NotImplementedError        
+    else:
+        raise NotImplementedError
 
     return decoder
 
