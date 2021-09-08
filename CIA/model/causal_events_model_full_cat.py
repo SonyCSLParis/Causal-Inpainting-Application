@@ -131,6 +131,8 @@ class CausalEventsModelFullCat(nn.Module):
         # forward pass
         out = self.transformer(target_seq,
                                pos_emb_input=layer_pos_emb_input,
+                               # TODO add parameter
+                               # TODO pb with inferring_states = True
                                inferring_states=False,
                                states=None)
         output = out['x']
@@ -256,27 +258,8 @@ class CausalEventsModelFullCat(nn.Module):
         :param h_pe:
         :return:
         """
-        target_embedded = self.data_processor.embed(target)
-        target_seq = flatten(target_embedded)
-        target_seq, layer_pos_emb_input, h_pe = self.prepare_sequence(
-            target_seq, metadata_dict, h_pe_init=None)
-
-        out = self.transformer(target_seq,
-                               pos_emb_input=layer_pos_emb_input,
-                               inferring_states=False,
-                               states=None)
-
-        # softmax
-        output = out['x'][:, i, :]
-        channel_index_output = i % self.num_channels_target
-        weights = self.pre_softmaxes[channel_index_output](output)
-
-        # no need for a loss
-        return {
-            'loss': None,
-            'weights': weights,
-        }
-
+        raise NotImplementedError
+    
     def infer_hidden_states(self, priming_seq, metadata_dict,
                             decoding_start_index):
         target_embedded = self.data_processor.embed(priming_seq)
