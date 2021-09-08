@@ -252,7 +252,6 @@ class Attention_(nn.Module):
         if not empty(lq):
             assert not cross_attend, 'local attention is not compatible with cross attention'
 
-            # TODO not clear this if:
             if (self.features_type is not None) and self.fast_local_attn:
                 if self.post_phi_layerPE:
                     if self.features_type == 'favor':
@@ -401,6 +400,9 @@ class FastAttention_(nn.Module):
                                                    states)
         else:
             if inferring_states:
+                # TODO(leo): horizon not taken into account!!!!
+                # Pb with default parameters!!!
+                raise NotImplementedError
                 out, states = infer_hidden_states(q, k, q_rot, k_rot, v,
                                                   horizon)
             else:
@@ -451,7 +453,7 @@ class LocalAttentionLinear(nn.Module):
 
 # inefficient causal linear attention, without cuda code,
 # (used for parallel inference of hidden states in recurrent mode)
-def infer_hidden_states(q, k, q_rot, k_rot, v, chunk_size=128, eps=1e-12):
+def infer_hidden_states(q, k, q_rot, k_rot, v, chunk_size=128, eps=1e-6):
     last_k_cumsum = 0
     last_context_cumsum = 0
     last_k_cumsum_rot = 0
