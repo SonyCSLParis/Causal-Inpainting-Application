@@ -16,7 +16,7 @@ import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 from CIA.data_processors.data_processor import DataProcessor
-from CIA.getters import get_dataloader_generator, get_data_processor, get_decoder, get_positional_embedding, \
+from CIA.getters import get_dataloader_generator, get_data_processor, get_decoder, get_handler, get_positional_embedding, \
     get_sos_embedding
 
 
@@ -113,16 +113,17 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
                                       device_ids=[rank],
                                       output_device=rank)
 
-    decoder_handler = DecoderPrefixHandler(
-        model=decoder,
+    decoder_handler = get_handler(
+        handler_type=config['handler_type'],
+        decoder=decoder,
         model_dir=model_dir,
         dataloader_generator=dataloader_generator)
 
     if load:
         if overfitted:
-            decoder_handler.load(early_stopped=False, recurrent=not train)
+            decoder_handler.load(early_stopped=False)
         else:
-            decoder_handler.load(early_stopped=True, recurrent=not train)
+            decoder_handler.load(early_stopped=True)
 
     if train:
         decoder_handler.train_model(
@@ -171,15 +172,15 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
 
     ############################################################
     # inpainting
-    start_time = time.time()
-    x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint(
-        x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
-    end_time = time.time()
-    ############################################################
     # start_time = time.time()
-    # x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint_non_optimized(
+    # x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint(
     #     x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
     # end_time = time.time()
+    ############################################################
+    start_time = time.time()
+    x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint_non_optimized(
+        x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
+    end_time = time.time()
     ############################################################
     x_inpainted = data_processor.postprocess(
         x_gen,

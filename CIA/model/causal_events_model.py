@@ -108,33 +108,8 @@ class CausalEventsModel(nn.Module):
         else:
             layer_pos_emb_input = None
         return target_seq, layer_pos_emb_input, h_pe
-
-    def forward(self, target, metadata_dict, h_pe_init=None):
-        """
-        :param target: sequence of tokens (batch_size, num_events, num_channels)
-        :return:
-        """
-        batch_size, _, _ = target.size()
-        target_embedded = self.data_processor.embed(target)
-        # target_embedded is (batch_size, num_events, num_channels, dim)
-
-        # WE do NOT flatten
-        # target_seq = flatten(target_embedded)
-        target_seq = torch.cat(target_embedded.split(1, dim=2),
-                               dim=3).squeeze(2)
-
-        # target_seq is (batch_size, num_vents, dim * num_channels)
-
-        target_seq, layer_pos_emb_input, h_pe = self.prepare_sequence(
-            target_seq, metadata_dict, h_pe_init)
-
-        # forward pass
-        out = self.transformer(target_seq,
-                               pos_emb_input=layer_pos_emb_input,
-                               inferring_states=False,
-                               states=None)
-        output = out['x']        
-
+    
+    def event_state_to_weights(self, output, target_embedded):
         weights_per_category = [
         ]
         for channel_id, pre_softmax in enumerate(self.pre_softmaxes):
@@ -145,7 +120,36 @@ class CausalEventsModel(nn.Module):
             output = torch.cat(
                 [output, target_embedded[:, :, channel_id]], dim=2
             )
-            
+        return weights_per_category
+    
+    def event_state_to_weight_step(self, output, target_embedded, channel_id):
+        """[summary]
+
+        Args:
+            output (batch_size, feature_dim): event_state
+            target_embedded (batch_size, num_channels, feature_dim): embeddings of the channels of the current event
+            channel_id ([type]): channel BEING predicted
+        """
+        # concatenate all already-predected channels
+        for i in range(channel_id):
+            output = torch.cat([output, target_embedded[:, i]], dim=1)
+        weight = self.pre_softmaxes[channel_id](output)
+        return weight
+        
+
+    def forward(self, target, metadata_dict, h_pe_init=None):
+        """
+        :param target: sequence of tokens (batch_size, num_events, num_channels)
+        :return:
+        """
+        # compute event_state
+        # embed + add positional embedding + offset + transformer pass
+        output, target_embedded, h_pe = self.compute_event_state(target, metadata_dict, h_pe_init)        
+
+        # auto regressive predictions from output
+        weights_per_category = self.event_state_to_weights(
+            output=output,
+            target_embedded=target_embedded)
 
         # we can change loss mask
         if 'loss_mask' in metadata_dict:
@@ -215,34 +219,31 @@ class CausalEventsModel(nn.Module):
                 }
             }
 
-    def forward_step(self, target, metadata_dict, i):
-        """
-        if i == 0, target is not used: SOS instead
-        :param target: sequence of tokens (batch_size,)
-        :param i:
-        :param h_pe:
-        :return:
-        """
+    def compute_event_state(self, target, metadata_dict, h_pe_init):
+        batch_size, _, _ = target.size()
         target_embedded = self.data_processor.embed(target)
-        target_seq = flatten(target_embedded)
-        target_seq, layer_pos_emb_input, h_pe = self.prepare_sequence(
-            target_seq, metadata_dict, h_pe_init=None)
+        # target_embedded is (batch_size, num_events, num_channels, dim)
 
+        # WE do NOT flatten
+        # target_seq = flatten(target_embedded)
+        target_seq = torch.cat(target_embedded.split(1, dim=2),
+                               dim=3).squeeze(2)
+
+        # target_seq is (batch_size, num_vents, dim * num_channels)
+
+        target_seq, layer_pos_emb_input, h_pe = self.prepare_sequence(
+            target_seq, metadata_dict, h_pe_init)
+
+        # forward pass
         out = self.transformer(target_seq,
                                pos_emb_input=layer_pos_emb_input,
                                inferring_states=False,
                                states=None)
+        output = out['x']
+        return output, target_embedded, h_pe
 
-        # softmax
-        output = out['x'][:, i, :]
-        channel_index_output = i % self.num_channels_target
-        weights = self.pre_softmaxes[channel_index_output](output)
-
-        # no need for a loss
-        return {
-            'loss': None,
-            'weights': weights,
-        }
+    def forward_step(self, target, metadata_dict, i):        
+        raise NotImplementedError
 
     def infer_hidden_states(self, priming_seq, metadata_dict,
                             decoding_start_index):

@@ -10,47 +10,24 @@ from torch.nn.parallel import DistributedDataParallel
 import torch.distributed as dist
 
 
-class DecoderPrefixHandler(Handler):
+# TODO duplicated code with decoder_prefix_handler.py
+class DecoderEventsHandler(Handler):
     def __init__(self, model: DistributedDataParallel, model_dir: str,
                  dataloader_generator: DataloaderGenerator) -> None:
         super().__init__(model=model,
                          model_dir=model_dir,
                          dataloader_generator=dataloader_generator)
 
-    def plot(self, epoch_id, monitored_quantities_train,
-             monitored_quantities_val) -> None:
-        if is_main_process():
-            for k, v in monitored_quantities_train.items():
-                self.writer.add_scalar(f'{k}/train', v, epoch_id)
-            for k, v in monitored_quantities_val.items():
-                self.writer.add_scalar(f'{k}/val', v, epoch_id)
+    # --- EventsHandler-specific wrappers
+    def event_state_to_weight_step(self, output, target_embedded,
+                                   channel_index):
+        return self.model.module.event_state_to_weight_step(
+            output, target_embedded, channel_index)
 
-    def load(self, early_stopped, recurrent):
-        map_location = {'cuda:0': f'cuda:{dist.get_rank()}'}
-        print(f'Loading models {self.__repr__()}')
-        if early_stopped:
-            print('Load early stopped model')
-            model_dir = f'{self.model_dir}/early_stopped'
-        else:
-            print('Load over-fitted model')
-            model_dir = f'{self.model_dir}/overfitted'
-
-        state_dict = torch.load(f'{model_dir}/model',
-                                map_location=map_location)
-
-        # # if recurrent, we must also load the "with_states" version
-        # if recurrent:
-        #     transformer_with_states_dict = {}
-        #     for k, v in state_dict.items():
-        #         if 'transformer' in k:
-        #             new_key = k.replace(
-        #                 'transformer.transformer', 'transformer.transformer_with_states')
-        #             transformer_with_states_dict[new_key] = v
-        #     state_dict.update(transformer_with_states_dict)
-        self.model.load_state_dict(
-            state_dict=state_dict,
-            # strict=False
-        )
+    def compute_event_state(self, target, metadata_dict):
+        return self.model.module.compute_event_state(target,
+                                                     metadata_dict,
+                                                     h_pe_init=None)
 
     # ==== Training methods
 
@@ -81,8 +58,7 @@ class DecoderPrefixHandler(Handler):
 
             # ========Train decoder =============
             self.optimizer.zero_grad()
-            forward_pass = self.forward(target=x,
-                                        metadata_dict=metadata_dict)
+            forward_pass = self.forward(target=x, metadata_dict=metadata_dict)
             loss = forward_pass['loss']
             # h_pe_init = forward_pass['h_pe'].detach()
 
@@ -111,7 +87,12 @@ class DecoderPrefixHandler(Handler):
 
         return means
 
-    def inpaint_non_optimized(self, x, metadata_dict, temperature=1., top_p=1., top_k=0):
+    def inpaint_non_optimized(self,
+                              x,
+                              metadata_dict,
+                              temperature=1.,
+                              top_p=1.,
+                              top_k=0):
         # TODO add arguments to preprocess
         print(f'Placeholder duration: {metadata_dict["placeholder_duration"]}')
         self.eval()
@@ -124,20 +105,27 @@ class DecoderPrefixHandler(Handler):
         decoding_start_event = metadata_dict['decoding_start']
         x[:, decoding_start_event:] = 0
         with torch.no_grad():
-            # i corresponds to the position of the token BEING generated
+            # event_index corresponds to the position of the token BEING generated
             for event_index in range(decoding_start_event, num_events):
+                metadata_dict['original_sequence'] = x
+
+                # output is used to generate auto-regressively all
+                # channels of an event
+                output, target_embedded, h_pe = self.compute_event_state(
+                    target=x,
+                    metadata_dict=metadata_dict,
+                )
+
+                # extract correct event_step
+                output = output[:, event_index]
+
                 for channel_index in range(self.num_channels_target):
-
-                    metadata_dict['original_sequence'] = x
-
-                    decoding_index = event_index * self.num_channels_target + channel_index
-
-                    forward_pass = self.forward_step(
-                        target=x,
-                        metadata_dict=metadata_dict,
-                        decoding_index=decoding_index)
-                    weights = forward_pass['weights']
-
+                    # target_embedded must be recomputed!
+                    # TODO could be optimized
+                    target_embedded = self.data_processor.embed(x)[:,
+                                                                   event_index]
+                    weights = self.event_state_to_weight_step(
+                        output, target_embedded, channel_index)
                     logits = weights / temperature
 
                     filtered_logits = []
@@ -153,24 +141,28 @@ class DecoderPrefixHandler(Handler):
                     # update generated sequence
                     for batch_index in range(batch_size):
                         if event_index >= decoding_start_event:
-                            new_pitch_index = np.random.choice(np.arange(
-                                self.num_tokens_per_channel_target[channel_index]),
+                            new_pitch_index = np.random.choice(
+                                np.arange(self.num_tokens_per_channel_target[
+                                    channel_index]),
                                 p=p[batch_index])
-                            x[batch_index, event_index, channel_index] = int(
-                                new_pitch_index)
+                            x[batch_index, event_index,
+                              channel_index] = int(new_pitch_index)
 
                             end_symbol_index = self.dataloader_generator.dataset.value2index[
-                                self.dataloader_generator.features[channel_index]]['END']
+                                self.dataloader_generator.
+                                features[channel_index]]['END']
                             if end_symbol_index == int(new_pitch_index):
                                 decoding_end = event_index
 
+                    if decoding_end is not None:
+                        break
                 if decoding_end is not None:
                     break
-        if decoding_end is None:
-            done = False
-            decoding_end = num_events
-        else:
-            done = True
+            if decoding_end is None:
+                done = False
+                decoding_end = num_events
+            else:
+                done = True
 
         num_event_generated = decoding_end - decoding_start_event
         return x.cpu(), decoding_end, num_event_generated, done
@@ -191,10 +183,12 @@ class DecoderPrefixHandler(Handler):
 
         # get hidden states
         metadata_dict['original_sequence'] = x
-        out = self.model.module.infer_hidden_states(
-            x, metadata_dict, decoding_start_index)
-        states = dict(Zs=out['Zs'], Ss=out['Ss'],
-                      Zs_rot=out['Zs_rot'], Ss_rot=out['Ss_rot'])
+        out = self.model.module.infer_hidden_states(x, metadata_dict,
+                                                    decoding_start_index)
+        states = dict(Zs=out['Zs'],
+                      Ss=out['Ss'],
+                      Zs_rot=out['Zs_rot'],
+                      Ss_rot=out['Ss_rot'])
 
         # TODO(Leo): MUST ADD original_token to metadata_dict, otherwise, positional encodings are not computed properly
         with torch.no_grad():
@@ -231,14 +225,16 @@ class DecoderPrefixHandler(Handler):
                     # update generated sequence
                     for batch_index in range(batch_size):
                         if event_index >= decoding_start_event:
-                            new_pitch_index = np.random.choice(np.arange(
-                                self.num_tokens_per_channel_target[channel_index]),
+                            new_pitch_index = np.random.choice(
+                                np.arange(self.num_tokens_per_channel_target[
+                                    channel_index]),
                                 p=p[batch_index])
-                            x[batch_index, event_index, channel_index] = int(
-                                new_pitch_index)
+                            x[batch_index, event_index,
+                              channel_index] = int(new_pitch_index)
 
                             end_symbol_index = self.dataloader_generator.dataset.value2index[
-                                self.dataloader_generator.features[channel_index]]['END']
+                                self.dataloader_generator.
+                                features[channel_index]]['END']
                             if end_symbol_index == int(new_pitch_index):
                                 decoding_end = event_index
 
