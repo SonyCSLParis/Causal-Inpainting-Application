@@ -50,7 +50,7 @@ config = {
     # --- Start Of Sequence embeddings
     'sos_embedding_dict': dict(
         learnt_sos_embedding=dict(
-            embedding_size=512  # sum must be equal to d_model_decoder
+            embedding_size=64  # sum must be equal to d_model_decoder
         )
     ),
 
@@ -62,7 +62,7 @@ config = {
         local_attn_heads=4,
         fast_local_attn=False,
         local_window_size=64,       # works with batch_size = 8
-        num_decoder_layers=8,
+        num_decoder_layers=10,
         dropout=0.1,
         label_smoothing=False,
         features={
@@ -84,7 +84,7 @@ config = {
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  2,
+    'batch_size':                  16,
     'num_batches':                 32,
     'num_epochs':                  1500,
 

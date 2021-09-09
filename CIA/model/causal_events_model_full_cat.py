@@ -60,22 +60,22 @@ class CausalEventsModelFullCat(nn.Module):
         #                                     for num_tokens_of_channel in self.num_tokens_per_channel
         #                                     ]
         #                                    )
-
+        d_last_layer = self.transformer.dim_last_layer
         self.last_mlps = nn.ModuleList(
             [
             # MLPs for autoregressive generation
             nn.Sequential(
-                nn.Linear(self.d_model + channel_id * self.data_processor.embedding_size, self.d_model * 4),
+                nn.Linear(d_last_layer + channel_id * self.data_processor.embedding_size, self.d_model * 4),
                 nn.LeakyReLU(),
                 nn.Linear(self.d_model * 4, self.d_model)
             )
                 for channel_id, num_tokens_of_channel
                 in enumerate(self.num_tokens_per_channel)
         ])
-        
+
         self.pre_softmaxes = nn.ModuleList(
             [
-                nn.Linear(self.d_model * 2  + channel_id * self.data_processor.embedding_size, num_tokens_of_channel)            
+                nn.Linear(self.d_model + d_last_layer + channel_id * self.data_processor.embedding_size, num_tokens_of_channel)
                 for channel_id, num_tokens_of_channel
                 in enumerate(self.num_tokens_per_channel)
         ])
@@ -92,7 +92,7 @@ class CausalEventsModelFullCat(nn.Module):
         # compute input to layer positional embeddings
         # TODO HARDCODED set to None
         # self.pe_input_type = None
-        
+
         if self.pe_input_type is not None:
             layer_pos_emb_input = get_pe_input(
                 dataloader_generator=self.dataloader_generator,
@@ -140,7 +140,7 @@ class CausalEventsModelFullCat(nn.Module):
                                pos_emb_input=layer_pos_emb_input,
                                inferring_states=False,
                                states=None)
-        output = out['x']        
+        output = out['x']
 
         weights_per_category = [
         ]
@@ -149,12 +149,12 @@ class CausalEventsModelFullCat(nn.Module):
             weight = mlp(output)
             weight = pre_softmax(torch.cat([weight, output], dim=2))
             weights_per_category.append(weight)
-            
+
             # concatenate channels to output
             output = torch.cat(
                 [output, target_embedded[:, :, channel_id]], dim=2
             )
-            
+
 
         # we can change loss mask
         if 'loss_mask' in metadata_dict:
