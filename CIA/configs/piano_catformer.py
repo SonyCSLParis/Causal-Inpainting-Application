@@ -54,8 +54,12 @@ config = {
         )
     ),
 
+    # --- Handler type ---
+    'handler_type': 'event', # event | channel
+
     # --- Decoder ---
     'decoder_kwargs': dict(
+        autoregressive_decoding='fullcat', # fullcat | mlp | None
         type='catformer',
         d_model=64,
         n_head=8,
@@ -84,7 +88,7 @@ config = {
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  24,
+    'batch_size':                  2,
     'num_batches':                 32,
     'num_epochs':                  1500,
 

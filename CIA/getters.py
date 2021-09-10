@@ -168,7 +168,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         pe_input_type = layer_pe['input']
     else:
         pe_input_type = None
-    
+
     if decoder_kwargs['type'] == 'performer':
         # TODO max_sequence_length is WRONG when channels are not expanded
         transformer = Performer_(
@@ -222,7 +222,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
         )
     else:
         raise NotImplementedError
-    
+
     if handler_type == 'channel':
         decoder = CausalModel(
             data_processor=data_processor,
@@ -262,7 +262,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
                 transformer=transformer,
                 pe_input_type=pe_input_type)
         else:
-            raise NotImplementedError        
+            raise NotImplementedError
     else:
         raise NotImplementedError
     return decoder
