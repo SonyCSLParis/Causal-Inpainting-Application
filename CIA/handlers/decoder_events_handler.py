@@ -165,7 +165,10 @@ class DecoderEventsHandler(Handler):
                 done = True
 
         num_event_generated = decoding_end - decoding_start_event
-        return x.cpu(), decoding_end, num_event_generated, done
+        
+        generated_region = x[:, decoding_start_event:decoding_end]
+        # TODO return everything on GPU
+        return x.cpu(), generated_region, decoding_end, num_event_generated, done
 
     def inpaint(self, x, metadata_dict, temperature=1., top_p=1., top_k=0):
         # TODO add arguments to preprocess

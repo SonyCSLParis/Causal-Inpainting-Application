@@ -176,7 +176,7 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
     ############################################################
     # inpainting
     start_time = time.time()
-    x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint(
+    x_gen, generated_region, decoding_end, num_event_generated, done = decoder_handler.inpaint(
         x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
     end_time = time.time()
     ############################################################
