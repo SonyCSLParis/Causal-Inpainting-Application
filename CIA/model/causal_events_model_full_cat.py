@@ -81,7 +81,7 @@ class CausalEventsModelFullCat(nn.Module):
         ])
 
     def __repr__(self) -> str:
-        return 'CausalEventsDecoder'
+        return 'CausalEventsDecoderFullCat'
 
     def prepare_sequence(self, target_seq, metadata_dict, h_pe_init):
         # add input positional embeddings
@@ -89,10 +89,7 @@ class CausalEventsModelFullCat(nn.Module):
             target_seq, i=0, h=h_pe_init, metadata_dict=metadata_dict)
         target_seq = self.linear_target(target_seq)
 
-        # compute input to layer positional embeddings
-        # TODO HARDCODED set to None
-        # self.pe_input_type = None
-
+        # compute input to layer positional embeddings        
         if self.pe_input_type is not None:
             layer_pos_emb_input = get_pe_input(
                 dataloader_generator=self.dataloader_generator,
@@ -115,12 +112,8 @@ class CausalEventsModelFullCat(nn.Module):
         else:
             layer_pos_emb_input = None
         return target_seq, layer_pos_emb_input, h_pe
-
-    def forward(self, target, metadata_dict, h_pe_init=None):
-        """
-        :param target: sequence of tokens (batch_size, num_events, num_channels)
-        :return:
-        """
+    
+    def compute_event_state(self, target, metadata_dict, h_pe_init):
         batch_size, _, _ = target.size()
         target_embedded = self.data_processor.embed(target)
         # target_embedded is (batch_size, num_events, num_channels, dim)
@@ -138,24 +131,41 @@ class CausalEventsModelFullCat(nn.Module):
         # forward pass
         out = self.transformer(target_seq,
                                pos_emb_input=layer_pos_emb_input,
+                               # TODO add parameter
+                               # TODO pb with inferring_states = True
                                inferring_states=False,
                                states=None)
         output = out['x']
+#
+      #  weights_per_category = [
+     #   ]
+    #    for channel_id, (mlp, pre_softmax) in enumerate(zip(self.last_mlps, self.pre_softmaxes)):
+   #         # mimics residual connexion:
+  #          weight = mlp(output)
+ #           weight = pre_softmax(torch.cat([weight, output], dim=2))
+#            weights_per_category.append(weight)
 
-        weights_per_category = [
-        ]
-        for channel_id, (mlp, pre_softmax) in enumerate(zip(self.last_mlps, self.pre_softmaxes)):
-            # mimics residual connexion:
-            weight = mlp(output)
-            weight = pre_softmax(torch.cat([weight, output], dim=2))
-            weights_per_category.append(weight)
+        #    # concatenate channels to output
+        #    output = torch.cat(
+        #        [output, target_embedded[:, :, channel_id]], dim=2
+       #     )
 
-            # concatenate channels to output
-            output = torch.cat(
-                [output, target_embedded[:, :, channel_id]], dim=2
-            )
+        return output, target_embedded, h_pe
 
+    def forward(self, target, metadata_dict, h_pe_init=None):
+        """
+        :param target: sequence of tokens (batch_size, num_events, num_channels)
+        :return:
+        """
+        # compute event_state
+        # embed + add positional embedding + offset + transformer pass
+        output, target_embedded, h_pe = self.compute_event_state(target, metadata_dict, h_pe_init)        
 
+        # auto regressive predictions from output
+        weights_per_category = self.event_state_to_weights(
+            output=output,
+            target_embedded=target_embedded)
+        
         # we can change loss mask
         if 'loss_mask' in metadata_dict:
             loss_mask = (1 - metadata_dict['loss_mask'].long())
@@ -223,6 +233,36 @@ class CausalEventsModelFullCat(nn.Module):
                     'loss': loss.item()
                 }
             }
+            
+    def event_state_to_weights(self, output, target_embedded):
+        weights_per_category = [
+        ]
+        for channel_id, (mlp, pre_softmax) in enumerate(zip(self.last_mlps, self.pre_softmaxes)):
+            # mimics residual connexion:
+            weight = mlp(output)
+            weight = pre_softmax(torch.cat([weight, output], dim=2))
+            weights_per_category.append(weight)
+            
+            # concatenate channels to output
+            output = torch.cat(
+                [output, target_embedded[:, :, channel_id]], dim=2
+            )
+        return weights_per_category
+    
+    def event_state_to_weight_step(self, output, target_embedded, channel_id):
+        """[summary]
+
+        Args:
+            output (batch_size, feature_dim): event_state
+            target_embedded (batch_size, num_channels, feature_dim): embeddings of the channels of the current event
+            channel_id ([type]): channel BEING predicted
+        """
+        # concatenate all already-predected channels
+        for i in range(channel_id):
+            output = torch.cat([output, target_embedded[:, i]], dim=1)
+        weight = torch.cat([self.last_mlps[channel_id](output), output], dim=1)
+        weight = self.pre_softmaxes[channel_id](weight)
+        return weight
 
     def forward_step(self, target, metadata_dict, i):
         """
@@ -232,27 +272,8 @@ class CausalEventsModelFullCat(nn.Module):
         :param h_pe:
         :return:
         """
-        target_embedded = self.data_processor.embed(target)
-        target_seq = flatten(target_embedded)
-        target_seq, layer_pos_emb_input, h_pe = self.prepare_sequence(
-            target_seq, metadata_dict, h_pe_init=None)
-
-        out = self.transformer(target_seq,
-                               pos_emb_input=layer_pos_emb_input,
-                               inferring_states=False,
-                               states=None)
-
-        # softmax
-        output = out['x'][:, i, :]
-        channel_index_output = i % self.num_channels_target
-        weights = self.pre_softmaxes[channel_index_output](output)
-
-        # no need for a loss
-        return {
-            'loss': None,
-            'weights': weights,
-        }
-
+        raise NotImplementedError
+    
     def infer_hidden_states(self, priming_seq, metadata_dict,
                             decoding_start_index):
         target_embedded = self.data_processor.embed(priming_seq)

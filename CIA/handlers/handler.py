@@ -29,7 +29,8 @@ class Handler:
         return self.model.forward(target, metadata_dict)
 
     def forward_step(self, target, metadata_dict, decoding_index):
-        return self.model.module.forward_step(target, metadata_dict, decoding_index)
+        return self.model.module.forward_step(
+            target, metadata_dict, decoding_index)
 
     def recurrent_step(self, target, metadata_dict, states, decoding_index):
         return self.model.module.recurrent_step(target, metadata_dict, states, decoding_index)
@@ -89,16 +90,6 @@ class Handler:
 
         state_dict = torch.load(f'{model_dir}/model',
                                 map_location=map_location)
-
-        # TODO, Remove?!
-        # # copy transformer_with_states during inference
-
-        # transformer_with_states_dict = {}
-        # for k, v in state_dict.items():
-        #     if 'transformer' in k:
-        #         new_key = k.replace('decoder.transformer', 'decoder.transformer_with_states')
-        #         transformer_with_states_dict[new_key] = v
-        # state_dict.update(transformer_with_states_dict)
 
         self.model.load_state_dict(
             state_dict=state_dict

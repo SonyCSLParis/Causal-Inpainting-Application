@@ -16,7 +16,7 @@ import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 from CIA.data_processors.data_processor import DataProcessor
-from CIA.getters import get_dataloader_generator, get_data_processor, get_decoder, get_positional_embedding, \
+from CIA.getters import get_dataloader_generator, get_data_processor, get_decoder, get_handler, get_positional_embedding, \
     get_sos_embedding
 
 
@@ -106,23 +106,27 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
                           positional_embedding=positional_embedding,
                           sos_embedding=sos_embedding,
                           decoder_kwargs=config['decoder_kwargs'],
-                          training_phase=train)
+                          training_phase=train,
+                          handler_type=config['handler_type']
+                          )
+    
 
     decoder.to(device)
     decoder = DistributedDataParallel(module=decoder,
                                       device_ids=[rank],
                                       output_device=rank)
 
-    decoder_handler = DecoderPrefixHandler(
-        model=decoder,
+    decoder_handler = get_handler(
+        handler_type=config['handler_type'],
+        decoder=decoder,
         model_dir=model_dir,
         dataloader_generator=dataloader_generator)
 
     if load:
         if overfitted:
-            decoder_handler.load(early_stopped=False, recurrent=not train)
+            decoder_handler.load(early_stopped=False)
         else:
-            decoder_handler.load(early_stopped=True, recurrent=not train)
+            decoder_handler.load(early_stopped=True)
 
     if train:
         decoder_handler.train_model(

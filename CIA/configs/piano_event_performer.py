@@ -53,13 +53,18 @@ config = {
             embedding_size=512  # sum must be equal to d_model_decoder
         )
     ),
-
+    # --- Handler type --- 
+    'handler_type': 'event', # event | channel
+    
     # --- Decoder ---
     'decoder_kwargs': dict(
+        # autoregressive_decoding only needed if handler_type == 'event
+        autoregressive_decoding='fullcat', # fullcat | mlp | None 
         d_model=512,
         n_head=8,
         local_attn_heads=4,
-        fast_local_attn=False,
+        fast_local_attn=True,        
+        # previous "default" values
         # local_window_size=256,
         # num_decoder_layers=16,
         local_window_size=64, # works with batch_size = 8

@@ -48,7 +48,8 @@ class DecoderPrefixHandler(Handler):
         #             transformer_with_states_dict[new_key] = v
         #     state_dict.update(transformer_with_states_dict)
         self.model.load_state_dict(
-            state_dict=state_dict
+            state_dict=state_dict,
+            # strict=False
         )
 
     # ==== Training methods
