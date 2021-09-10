@@ -2,7 +2,7 @@ from pathlib import Path
 
 config = {
     'training_method':             'decoder',
-    'dataset':                     'piano_test',  # 'piano', 'piano_test'
+    'dataset':                     'piano',  # 'piano', 'piano_test'
 
     # --- Dataloader ---
     'dataloader_generator_kwargs': dict(
@@ -84,7 +84,7 @@ config = {
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  16,
+    'batch_size':                  24,
     'num_batches':                 32,
     'num_epochs':                  1500,
 

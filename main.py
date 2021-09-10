@@ -136,7 +136,8 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
         exit()
 
     # fix projection matrices before generating
-    decoder_handler.model.module.transformer.fix_projection_matrices_()
+    if hasattr(decoder_handler.model.module.transformer, 'fix_projection_matrices_'):
+        decoder_handler.model.module.transformer.fix_projection_matrices_()
 
     # exemple = dict(path='/home/leo/Data/databases/Piano/ecomp_piano_dataset/Abdelmola01.MID', num_events_middle=500,
     #                start=0)
