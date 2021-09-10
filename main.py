@@ -109,7 +109,7 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
                           training_phase=train,
                           handler_type=config['handler_type']
                           )
-    
+
 
     decoder.to(device)
     decoder = DistributedDataParallel(module=decoder,
@@ -182,7 +182,7 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
     # end_time = time.time()
     ############################################################
     start_time = time.time()
-    x_gen, decoding_end, num_event_generated, done = decoder_handler.inpaint_non_optimized(
+    x_gen, generated_region, decoding_end, num_event_generated, done = decoder_handler.inpaint_non_optimized(
         x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
     end_time = time.time()
     ############################################################
