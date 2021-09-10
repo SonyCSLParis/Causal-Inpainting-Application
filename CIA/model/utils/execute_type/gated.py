@@ -69,10 +69,9 @@ class GatedSequence_(nn.Module):
         else:
             Zs = torch.zeros_like(x)
             Ss = torch.zeros_like(x)
-            
+
         if kwargs['inferring_states']:
-            # TODO Zs_rot and Ss_rot are missing
-            
+            # TODO Zs_rot and Ss_rot are missing            
             raise NotImplementedError       
             return x, Zs, Ss, None, None
         else:

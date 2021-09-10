@@ -228,9 +228,10 @@ class CausalModel(nn.Module):
         target_seq = flatten(target_embedded)
         target_seq, layer_pos_emb, h_pe = self.prepare_sequence(
             target_seq, metadata_dict, h_pe_init=None)
+        pos_emb_input = layer_pos_emb[:, :decoding_start_index+1]
         out = self.transformer(
             target_seq[:, :decoding_start_index + 1],
-            pos_emb_input=layer_pos_emb[:, :decoding_start_index+1],
+            pos_emb_input=pos_emb_input,
             inferring_states=True, states=None)
         # softmax
         # prediction for time_index decoding_start_index

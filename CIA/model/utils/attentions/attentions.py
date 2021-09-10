@@ -1,3 +1,4 @@
+from numpy import inner
 from CIA.model.utils.positional_embeddings.pe_modules.rotary import Rotary
 from CIA.model.utils.positional_embeddings.pe_modules.rototor import Rototor
 from CIA.model.utils.positional_embeddings.pe_modules.index_spe import SineSPE
@@ -22,13 +23,14 @@ except:
 class Attention_(nn.Module):
     def __init__(
         self,
-        dim,
+        input_dim,
+        output_dim,
         causal=False,
         heads=8,
-        dim_head=64,
         local_heads=0,
         fast_local_attn=None,
         local_window_size=256,
+        expansion_factor_attn=None,
         features=None,
         generalized_attention=False,
         kernel_fn=nn.ReLU(),
@@ -40,9 +42,12 @@ class Attention_(nn.Module):
         dataloader_generator=None,
     ):
         super().__init__()
-        assert dim % heads == 0, 'dimension must be divisible by number of heads'
-        self.dim_head = default(dim_head, dim // heads)
-        inner_dim = dim_head * heads
+        assert input_dim % heads == 0, 'dimension must be divisible by number of heads'
+        dim_head = input_dim // heads
+        if expansion_factor_attn is not None:
+            inner_dim = expansion_factor_attn * output_dim
+        else:
+            inner_dim = dim_head * heads
         self.features_type = features['type']
         if self.features_type is None:
             pass
@@ -74,20 +79,19 @@ class Attention_(nn.Module):
             self.local_attn = FastAttention_(
                 causal) if local_heads > 0 else None
         else:
-            self.local_attn = LocalAttention(
-                window_size=local_window_size,
-                causal=causal,
-                autopad=True,
-                dropout=dropout,
-                look_forward=int(not causal),
-                rel_pos_emb_config=(dim_head,
-                                    local_heads)) if local_heads > 0 else None
+            # rel_pos_emb_config=(dim_head, local_heads)  # LEGACY
+            rel_pos_emb_config= None
+            self.local_attn = LocalAttention(window_size=local_window_size, causal=causal, autopad=True,
+                                             dropout=dropout, look_forward=int(
+                                                 not causal),
+                                             rel_pos_emb_config=rel_pos_emb_config) if local_heads > 0 else None
+
 
         # linear mapping to q, k, v
-        self.to_q = nn.Linear(dim, inner_dim, bias=qkv_bias)
-        self.to_k = nn.Linear(dim, inner_dim, bias=qkv_bias)
-        self.to_v = nn.Linear(dim, inner_dim, bias=qkv_bias)
-        self.to_out = nn.Linear(inner_dim, dim, bias=attn_out_bias)
+        self.to_q = nn.Linear(input_dim, inner_dim, bias=qkv_bias)
+        self.to_k = nn.Linear(input_dim, inner_dim, bias=qkv_bias)
+        self.to_v = nn.Linear(input_dim, inner_dim, bias=qkv_bias)
+        self.to_out = nn.Linear(inner_dim, output_dim, bias=attn_out_bias)
         self.dropout = nn.Dropout(dropout)
 
         # positional encodings

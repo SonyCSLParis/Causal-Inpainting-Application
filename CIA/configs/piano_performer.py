@@ -57,17 +57,18 @@ config = {
 
     # --- Decoder ---
     'decoder_kwargs': dict(
-        d_model=512,
+        type='performer',
+        d_model=64,
         n_head=8,
-        local_attn_heads=0,
+        local_attn_heads=4,
         fast_local_attn=False,
         num_decoder_layers=16,
         dropout=0.1,
         label_smoothing=False,
         features={
-            'type': 'favor',  # 'favor', 'elu', None is Transformer
-            'args': dict(n_features=256),  # 'favor args
-            # 'args': dict(),  # elu args
+            'type': 'elu',  # 'favor', 'elu', None is Transformer
+            # 'args': dict(n_features=256),  # 'favor args
+            'args': dict(),  # elu args
         },
         execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
         layer_pe=None,

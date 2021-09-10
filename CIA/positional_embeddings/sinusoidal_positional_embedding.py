@@ -15,11 +15,9 @@ class SinusoidalPositionalEmbedding(BasePositionalEmbedding):
         self.positional_embedding_size = positional_embedding_size
 
         self.dropout = torch.nn.Dropout(p=dropout)
-        
-                
+
         self.num_channels = num_channels
         max_len = num_tokens_max
-            
 
         self.pe = torch.zeros(max_len, positional_embedding_size)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
@@ -37,7 +35,7 @@ class SinusoidalPositionalEmbedding(BasePositionalEmbedding):
             )
         else:
             pos_embedding = self.pe
-            
+
         pos_embedding = pos_embedding[:, :x.size(1), :]
         pos_embedding = pos_embedding.repeat(x.shape[0], 1, 1)
 

@@ -60,22 +60,22 @@ class CausalEventsModelFullCat(nn.Module):
         #                                     for num_tokens_of_channel in self.num_tokens_per_channel
         #                                     ]
         #                                    )
-
+        d_last_layer = self.transformer.dim_last_layer
         self.last_mlps = nn.ModuleList(
             [
             # MLPs for autoregressive generation
             nn.Sequential(
-                nn.Linear(self.d_model + channel_id * self.data_processor.embedding_size, self.d_model * 4),
+                nn.Linear(d_last_layer + channel_id * self.data_processor.embedding_size, self.d_model * 4),
                 nn.LeakyReLU(),
                 nn.Linear(self.d_model * 4, self.d_model)
             )
                 for channel_id, num_tokens_of_channel
                 in enumerate(self.num_tokens_per_channel)
         ])
-        
+
         self.pre_softmaxes = nn.ModuleList(
             [
-                nn.Linear(self.d_model * 2  + channel_id * self.data_processor.embedding_size, num_tokens_of_channel)            
+                nn.Linear(self.d_model + d_last_layer + channel_id * self.data_processor.embedding_size, num_tokens_of_channel)
                 for channel_id, num_tokens_of_channel
                 in enumerate(self.num_tokens_per_channel)
         ])
@@ -136,6 +136,20 @@ class CausalEventsModelFullCat(nn.Module):
                                inferring_states=False,
                                states=None)
         output = out['x']
+#
+      #  weights_per_category = [
+     #   ]
+    #    for channel_id, (mlp, pre_softmax) in enumerate(zip(self.last_mlps, self.pre_softmaxes)):
+   #         # mimics residual connexion:
+  #          weight = mlp(output)
+ #           weight = pre_softmax(torch.cat([weight, output], dim=2))
+#            weights_per_category.append(weight)
+
+        #    # concatenate channels to output
+        #    output = torch.cat(
+        #        [output, target_embedded[:, :, channel_id]], dim=2
+       #     )
+
         return output, target_embedded, h_pe
 
     def forward(self, target, metadata_dict, h_pe_init=None):
@@ -151,7 +165,7 @@ class CausalEventsModelFullCat(nn.Module):
         weights_per_category = self.event_state_to_weights(
             output=output,
             target_embedded=target_embedded)
-
+        
         # we can change loss mask
         if 'loss_mask' in metadata_dict:
             loss_mask = (1 - metadata_dict['loss_mask'].long())
