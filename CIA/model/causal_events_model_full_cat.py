@@ -32,7 +32,6 @@ class CausalEventsModelFullCat(nn.Module):
         assert self.num_channels_target == num_channels_decoder
         self.d_model = d_model
         self.num_tokens_target = self.data_processor.num_tokens
-
         assert self.num_tokens_target == num_channels_decoder * num_events_decoder
 
         ######################################################
@@ -96,7 +95,9 @@ class CausalEventsModelFullCat(nn.Module):
                 x_embed=target_seq,
                 h=h_pe_init,
                 metadata_dict=metadata_dict,
-                pe_input_type=self.pe_input_type)
+                pe_input_type=self.pe_input_type,
+                event_representation=True,
+                )
 
         # shift target_seq by one
         dummy_input_target = self.sos_embedding(metadata_dict).unsqueeze(1)

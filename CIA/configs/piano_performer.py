@@ -2,15 +2,15 @@ from pathlib import Path
 
 config = {
     'training_method':             'decoder',
-    'dataset':                     'piano_test',  # 'piano', 'piano_test'
+    'dataset':                     'piano',  # 'piano', 'piano_test'
 
     # --- Dataloader ---
     'dataloader_generator_kwargs': dict(
         sequences_size=1024,
         transformations={
-            'time_dilation':  True,
+            'time_dilation': True,
             'velocity_shift': True,
-            'transposition':  True
+            'transposition': True
         },
         pad_before=True,
     ),  # Can be different from the encoder's data loader
