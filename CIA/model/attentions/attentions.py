@@ -77,8 +77,8 @@ class Attention_(nn.Module):
                 window_size=local_window_size) if local_heads > 0 else None
         else:
             # rel_pos_emb_config=(dim_head, local_heads)  # LEGACY
-            self.local_attn = LocalAttention_(window_size=local_window_size, causal=causal, autopad=True,
-                                             dropout=dropout, look_forward=int(not causal)) if local_heads > 0 else None
+            self.local_attn = LocalAttention_(window_size=local_window_size, autopad=True,
+                                             dropout=dropout) if local_heads > 0 else None
 
         # linear mapping to q, k, v
         self.to_q = nn.Linear(input_dim, inner_dim, bias=qkv_bias)
@@ -90,7 +90,7 @@ class Attention_(nn.Module):
         # positional encodings
         if layer_pe is not None:
             layer_pe_args = layer_pe['args']
-            self.post_phi_layerPE = layer_pe_args['post_phi_layerPE']
+            post_phi_layerPE = layer_pe_args['post_phi_layerPE']
             self.input_dim_layerPE = layer_pe_args['input_dim']
             self.gated = layer_pe_args['gated_layerSPE']
             if self.gated:
@@ -115,8 +115,16 @@ class Attention_(nn.Module):
                         dataloader_generator=dataloader_generator)
             self.layer_pe_type = layer_pe['type']
         else:
-            self.post_phi_layerPE = True
+            post_phi_layerPE = True
             self.to_theta_q = None
+
+        # qu'est-ce qu'on calcule ?
+        self.compute_features_global = dict()
+        self.compute_features_global["before_pe"] = (self.features_type is not None) and (post_phi_layerPE)
+        self.compute_features_global["after_pe"] = (self.features_type is not None) and (not post_phi_layerPE)
+        self.compute_features_local = dict()
+        self.compute_features_local["before_pe"] = (self.features_type is not None) and fast_local_attn and post_phi_layerPE
+        self.compute_features_local["after_pe"] = (self.features_type is not None) and fast_local_attn and (not post_phi_layerPE)
 
     def forward(self,
                 x,
@@ -155,7 +163,7 @@ class Attention_(nn.Module):
                 global_mask = context_mask[:, None, :, None]
                 v.masked_fill_(~global_mask, 0.)
 
-            if self.post_phi_layerPE:
+            if self.compute_features_global["before_pe"]:
                 if self.features_type == 'favor':
                     q, k = self.feature_map(q, k)
                 elif self.features_type == 'elu':
@@ -211,7 +219,7 @@ class Attention_(nn.Module):
                 q_rot = None
                 k_rot = None
 
-            if not self.post_phi_layerPE:
+            if self.compute_features_global["after_pe"]:
                 if self.features_type == 'favor':
                     q, k = self.feature_map(q, k)
                     if q_rot is not None:
@@ -220,6 +228,7 @@ class Attention_(nn.Module):
                     q, k = map(lambda t: F.elu(t) + 1, (q, k))
                     if q_rot is not None:
                         raise NotImplementedError
+
             if self.features_type is None:
                 _, _, time, dim = q.shape
                 qv = torch.einsum('bhid,bhjd->bhij', q, k) * (dim**-0.5)
@@ -238,13 +247,10 @@ class Attention_(nn.Module):
                                                  k_rot,
                                                  v,
                                                  kwargs['states'],
-                                                 kwargs['inferring_states'],
-                                                 horizon=None)
+                                                 kwargs['inferring_states'])
             attn_outs.append(out)
-
         if not empty(lq):
-            assert not cross_attend, 'local attention is not compatible with cross attention'
-            if self.post_phi_layerPE:
+            if self.compute_features_local["before_pe"]:
                 if self.features_type == 'favor':
                     lq, lk = self.feature_map(lq, lk)
                 elif self.features_type == 'elu':
@@ -259,7 +265,6 @@ class Attention_(nn.Module):
                     lq_rot = apply_rototor_pos_emb_(lq, lpos_emb_q)
                     lk_rot = apply_rototor_pos_emb_(lk, lpos_emb_k)
                 elif self.layer_pe_type == 'rotary':
-
                     pos_emb = self.layer_pos_emb_local(
                         pe_input=pos_emb_input)
                     lq, lk = apply_rotary_pos_emb_(lq, lk, pos_emb)
@@ -269,7 +274,7 @@ class Attention_(nn.Module):
                 lq_rot = None
                 lk_rot = None
 
-            if not self.post_phi_layerPE:
+            if self.compute_features_local["after_pe"]:
                 if self.features_type == 'favor':
                     lq, lk = self.feature_map(lq, lk)
                     if lq_rot is not None:
@@ -279,18 +284,14 @@ class Attention_(nn.Module):
                     if lq_rot is not None:
                         raise NotImplementedError
 
-            if self.fast_local_attn:
-                out, state_local = self.local_attn(
-                    lq,
-                    lk,
-                    lq_rot,
-                    lk_rot,
-                    lv,
-                    kwargs['states'],
-                    kwargs['inferring_states'])
-            else:
-                out = self.local_attn(lq, lk, lv, input_mask=mask)
-                state = None
+            out, state_local = self.local_attn(
+                lq,
+                lk,
+                lq_rot,
+                lk_rot,
+                lv,
+                kwargs['states'],
+                kwargs['inferring_states'])
 
             attn_outs.append(out)
 

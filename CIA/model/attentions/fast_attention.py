@@ -1,7 +1,6 @@
 from functools import partial
 import torch
 import torch.nn as nn
-from performer_pytorch.performer_pytorch import linear_attention
 from performer_pytorch.performer_pytorch import null_context
 from torch.cuda.amp import autocast
 try:
@@ -16,8 +15,7 @@ class FastAttention_(nn.Module):
         super().__init__()
         self.window_size = window_size
 
-    def forward(self, q, k, q_rot, k_rot, v, states, inferring_states,
-                horizon):
+    def forward(self, q, k, q_rot, k_rot, v, states, inferring_states):
         """
         inputs are already feature mapped
         """
@@ -32,11 +30,9 @@ class FastAttention_(nn.Module):
                 # TODO(leo): horizon not taken into account!!!!
                 # Pb with default parameters!!!
                 raise NotImplementedError
-                out, states = infer_hidden_states(q, k, q_rot, k_rot, v,
-                                                  horizon)
+                out, states = infer_hidden_states(q, k, q_rot, k_rot, v)
             else:
-                attn_fn = partial(causal_linear_attention)
-                out = attn_fn(q, k, q_rot, k_rot, v, local=self.window_size)
+                out = causal_linear_attention(q, k, q_rot, k_rot, v, local=self.window_size)
                 states = None
         return out, states
 
