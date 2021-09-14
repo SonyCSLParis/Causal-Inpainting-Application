@@ -1,9 +1,9 @@
 from numpy import log
 from CIA.dataloaders import dataloader
-from CIA.model.utils.execute_type.reversible_gated import ReversibleGatedSequence_
-from CIA.model.utils.execute_type.gated import GatedSequence_
-from CIA.model.utils.execute_type.reversible import ReversibleSequence_
-from CIA.model.utils.attentions.attentions import CrossAttention_, SelfAttention_
+from CIA.model.execute_type.reversible_gated import ReversibleGatedSequence_
+from CIA.model.execute_type.gated import GatedSequence_
+from CIA.model.execute_type.reversible import ReversibleSequence_
+from CIA.model.attentions.attentions import CrossAttention_, SelfAttention_
 import torch.nn as nn
 from functools import partial
 

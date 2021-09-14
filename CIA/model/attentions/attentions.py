@@ -1,6 +1,6 @@
-from CIA.model.utils.positional_embeddings.pe_modules.rotary import Rotary
-from CIA.model.utils.positional_embeddings.pe_modules.rototor import Rototor
-from CIA.model.utils.positional_embeddings.pe_modules.index_spe import SineSPE
+from CIA.model.positional_embeddings.pe_modules.rotary import Rotary
+from CIA.model.positional_embeddings.pe_modules.rototor import Rototor
+from CIA.model.positional_embeddings.pe_modules.index_spe import SineSPE
 
 from performer_pytorch.performer_pytorch import default, empty, exists, gaussian_orthogonal_random_matrix, generalized_kernel, softmax_kernel
 from functools import partial
@@ -10,9 +10,9 @@ import torch
 import torch.nn.functional as F
 import math
 
-from CIA.model.utils.positional_embeddings.apply_pe import apply_rotary_pos_emb_, apply_rototor_pos_emb_
-from CIA.model.utils.attentions.local_attention import LocalAttention_
-from CIA.model.utils.attentions.fast_attention import FastAttention_
+from CIA.model.positional_embeddings.apply_pe import apply_rotary_pos_emb_, apply_rototor_pos_emb_
+from CIA.model.attentions.local_attention import LocalAttention_
+from CIA.model.attentions.fast_attention import FastAttention_
 
 
 class Attention_(nn.Module):

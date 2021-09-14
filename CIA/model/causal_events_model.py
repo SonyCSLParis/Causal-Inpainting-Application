@@ -1,4 +1,4 @@
-from CIA.model.utils.positional_embeddings.get_pe_input import get_pe_input
+from CIA.model.positional_embeddings.get_pe_input import get_pe_input
 from CIA.positional_embeddings.positional_embedding import PositionalEmbedding
 from torch import nn
 from CIA.data_processors import DataProcessor
