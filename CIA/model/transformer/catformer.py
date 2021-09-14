@@ -1,7 +1,7 @@
 from performer_pytorch.performer_pytorch import Chunk, FeedForward, PreLayerNorm, PreScaleNorm, ReZero, cast_tuple
 from performer_pytorch.reversible import route_args
 import torch
-from CIA.model.utils.attentions.attentions import SelfAttention_
+from CIA.model.attentions.attentions import SelfAttention_
 import torch.nn as nn
 from functools import partial
 

@@ -1,5 +1,5 @@
 
-from CIA.model.utils.positional_embeddings.get_pe_input import get_pe_input
+from CIA.model.positional_embeddings.get_pe_input import get_pe_input
 from CIA.positional_embeddings.positional_embedding import PositionalEmbedding
 from torch import nn
 from CIA.data_processors import DataProcessor
@@ -75,7 +75,8 @@ class CausalModel(nn.Module):
         if self.pe_input_type is not None:
             layer_pos_emb_input = get_pe_input(dataloader_generator=self.dataloader_generator,
                                                x_embed=target_seq, h=h_pe_init, metadata_dict=metadata_dict,
-                                               pe_input_type=self.pe_input_type)
+                                               pe_input_type=self.pe_input_type,
+                                               event_representation=False)
 
         # shift target_seq by one
         dummy_input_target = self.sos_embedding(metadata_dict).unsqueeze(1)

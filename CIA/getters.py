@@ -1,9 +1,9 @@
 # TODO: Clean imports (like the handlers' one)
-from CIA.model.utils.catformer import Catformer
+from CIA.model.transformer.catformer import Catformer
 from CIA.model.causal_events_model import CausalEventsModel
 from CIA.model.causal_events_model_full_cat import CausalEventsModelFullCat
 from torch import nn
-from CIA.model.utils.performer import Performer_
+from CIA.model.transformer.performer import Performer_
 from CIA.model.causal_model import CausalModel
 from CIA.dataloaders import BachDataloaderGenerator, PianoDataloaderGenerator
 from CIA.data_processors import BachDataProcessor, MaskedPianoSourceTargetDataProcessor, PianoDataProcessor, \
