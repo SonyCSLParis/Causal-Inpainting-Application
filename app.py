@@ -230,6 +230,9 @@ def invocations():
         start_time=clip_start,
         beats_per_second=beats_per_second,
         rescale=False)
+    
+    ableton_notes_region = shorten_durations(ableton_notes_region,
+                                             ableton_notes_after_region)
 
     print(f'albeton notes: {ableton_notes}')
     print(f'region start: {ableton_notes_region}')
@@ -238,6 +241,7 @@ def invocations():
         'notes': ableton_notes,
         'track_duration': track_duration,
         'done': done,
+        'top_p': top_p,
         'selected_region': selected_region,
         'notes_before_next_region': ableton_notes_new_before,
         'notes_region': ableton_notes_region,
@@ -250,6 +254,48 @@ def invocations():
     }
     return jsonify(d)
 
+def shorten_durations(generated_notes, notes_after):
+    # shorten durations if necessary
+    # (case when two notes overlap are not well-handled by Ableton)
+    # (causes serious issues when generated notes overlap with the region after)
+    d = {}
+    max_end_time = 0
+    for k, note in enumerate(generated_notes):
+        pitch = note['pitch']
+        
+        if pitch in d:            
+            previous_note = generated_notes[d[note['pitch']]]
+            
+            current_time = note['time']
+            previous_note_sounding_end = previous_note['time'] + previous_note['duration']
+            max_end_time = max(max_end_time,
+                               note['time'] + note['duration'])
+            if previous_note_sounding_end > current_time:
+                previous_note['duration'] = current_time - previous_note['time'] - 1e-2
+        
+        d[note['pitch']] = k
+    
+    for k, note in enumerate(notes_after):
+        time = note['time']
+        if time > max_end_time:
+            break
+        
+        if len(d) == 0:
+            break
+        
+        pitch = note['pitch']
+        
+        if pitch in d:            
+            previous_note = generated_notes[d[note['pitch']]]
+            
+            current_time = note['time']
+            previous_note_sounding_end = previous_note['time'] + previous_note['duration']
+            if previous_note_sounding_end > current_time:
+                previous_note['duration'] = current_time - previous_note['time'] - 1e-2
+            del d[pitch]
+        
+    return generated_notes    
+        
 
 def preprocess_input(x, event_start, event_end):
     """
@@ -635,6 +681,7 @@ def tensor_to_ableton(tensor,
 
     track_duration = time[-1].item() + (notes[-1]['duration'].item() *
                                         rescaling_factor * beats_per_second)
+    
     return notes, track_duration
 
 
