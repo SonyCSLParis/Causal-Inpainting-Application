@@ -8,7 +8,6 @@ chardet==4.0.0
 click==7.1.2
 cryptography==3.4.7
 cycler==0.10.0
--e git+git@github.com:SonyCSLParis/DatasetManager.git@4c2d1181101f531f7170dbe10e55a711ccb10b6a#egg=DatasetManager
 docopt==0.6.2
 einops==0.3.0
 glob2==0.7
@@ -21,7 +20,6 @@ local-attention==1.4.1
 Markdown==3.3.4
 matplotlib==3.4.1
 mido==1.2.9
--e git+git@github.com:SonyCSLParis/jazz-music21.git@9f8059ae464a8627439b23aca4ae1913b2fc5917#egg=music21
 numpy==1.20.2
 oauthlib==3.1.0
 paramiko==2.7.2
