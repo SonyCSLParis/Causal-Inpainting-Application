@@ -1,22 +1,18 @@
-from CIA.model.utils.positional_embeddings.pe_modules.rotary import Rotary
-from CIA.model.utils.positional_embeddings.pe_modules.rototor import Rototor
-from CIA.model.utils.positional_embeddings.pe_modules.index_spe import SineSPE
-from performer_pytorch.performer_pytorch import default,\
-    empty, exists, gaussian_orthogonal_random_matrix, generalized_kernel, linear_attention, null_context, softmax_kernel
-from torch.cuda.amp import autocast
+from CIA.model.positional_embeddings.pe_modules.rotary import Rotary
+from CIA.model.positional_embeddings.pe_modules.rototor import Rototor
+from CIA.model.positional_embeddings.pe_modules.index_spe import SineSPE
+
+from performer_pytorch.performer_pytorch import default, empty, exists, gaussian_orthogonal_random_matrix, generalized_kernel, softmax_kernel
 from functools import partial
-from local_attention import LocalAttention
 from einops import rearrange
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
 import math
-from CIA.model.utils.positional_embeddings.apply_pe import apply_rotary_pos_emb_, apply_rototor_pos_emb_
-try:
-    from apex import amp
-    APEX_AVAILABLE = True
-except:
-    APEX_AVAILABLE = False
+
+from CIA.model.positional_embeddings.apply_pe import apply_rotary_pos_emb_, apply_rototor_pos_emb_
+from CIA.model.attentions.local_attention import LocalAttention_
+from CIA.model.attentions.fast_attention import FastAttention_
 
 class DepthwiseConv(nn.Module):
     def __init__(self, dim):
@@ -40,13 +36,14 @@ class DepthwiseConv(nn.Module):
 class Attention_(nn.Module):
     def __init__(
         self,
-        dim,
+        input_dim,
+        output_dim,
         causal=False,
         heads=8,
-        dim_head=64,
         local_heads=0,
         fast_local_attn=None,
         local_window_size=256,
+        expansion_factor_attn=None,
         features=None,
         generalized_attention=False,
         kernel_fn=nn.ReLU(),
@@ -58,9 +55,19 @@ class Attention_(nn.Module):
         dataloader_generator=None,
     ):
         super().__init__()
-        assert dim % heads == 0, 'dimension must be divisible by number of heads'
-        self.dim_head = default(dim_head, dim // heads)
-        inner_dim = dim_head * heads
+
+        # dimensions
+        assert input_dim % heads == 0, 'dimension must be divisible by number of heads'
+        dim_head = input_dim // heads
+        if expansion_factor_attn is not None:
+            inner_dim = expansion_factor_attn * output_dim
+        else:
+            inner_dim = dim_head * heads
+        self.heads = heads
+        self.global_heads = heads - local_heads
+        self.local_heads = local_heads
+
+        # features map (softmax kernel if None)
         self.features_type = features['type']
         if self.features_type is None:
             pass
@@ -77,34 +84,24 @@ class Attention_(nn.Module):
         else:
             raise NotImplementedError
 
+        # global attention (if self.feature_type was set to None, softmax kernel is used)
         if self.features_type is not None:
-            self.fast_attention = FastAttention_(causal)
+            self.global_attention = FastAttention_(window_size=None)
 
-        self.heads = heads
-        # assert local_heads == 0, 'Dont use local attention, incompatible with recursive transfofos'
-        self.global_heads = heads - local_heads
-        self.local_heads = local_heads
+        # local attention
         self.fast_local_attn = fast_local_attn
-        
-        # TODO this parameter must be INSIDE FastAttention
-        self.local_window_size = local_window_size
         if fast_local_attn:
             self.local_attn = FastAttention_(
-                causal) if local_heads > 0 else None
+                window_size=local_window_size) if local_heads > 0 else None
         else:
-            self.local_attn = LocalAttention(
-                window_size=local_window_size,
-                causal=causal,
-                autopad=True,
-                dropout=dropout,
-                look_forward=int(not causal),
-                rel_pos_emb_config=(dim_head,
-                                    local_heads)) if local_heads > 0 else None
+            # rel_pos_emb_config=(dim_head, local_heads)  # LEGACY
+            self.local_attn = LocalAttention_(window_size=local_window_size, autopad=True,
+                                             dropout=dropout) if local_heads > 0 else None
 
         # linear mapping to q, k, v
-        self.to_q = nn.Linear(dim, inner_dim, bias=qkv_bias)
-        self.to_k = nn.Linear(dim, inner_dim, bias=qkv_bias)
-        self.to_v = nn.Linear(dim, inner_dim, bias=qkv_bias)
+        self.to_q = nn.Linear(input_dim, inner_dim, bias=qkv_bias)
+        self.to_k = nn.Linear(input_dim, inner_dim, bias=qkv_bias)
+        self.to_v = nn.Linear(input_dim, inner_dim, bias=qkv_bias)
         # TODO TEST with depth-wise Conv
         # self.to_q = nn.Sequential(nn.Linear(dim, inner_dim, bias=qkv_bias),
         #                           DepthwiseConv(inner_dim)
@@ -115,13 +112,13 @@ class Attention_(nn.Module):
         # self.to_v = nn.Sequential(nn.Linear(dim, inner_dim, bias=qkv_bias),
         #                           DepthwiseConv(inner_dim)
         #                           )
-        self.to_out = nn.Linear(inner_dim, dim, bias=attn_out_bias)
+        self.to_out = nn.Linear(inner_dim, output_dim, bias=attn_out_bias)
         self.dropout = nn.Dropout(dropout)
 
         # positional encodings
         if layer_pe is not None:
             layer_pe_args = layer_pe['args']
-            self.post_phi_layerPE = layer_pe_args['post_phi_layerPE']
+            post_phi_layerPE = layer_pe_args['post_phi_layerPE']
             self.input_dim_layerPE = layer_pe_args['input_dim']
             self.gated = layer_pe_args['gated_layerSPE']
             if self.gated:
@@ -133,25 +130,29 @@ class Attention_(nn.Module):
                 self.gate_local = nn.Parameter(
                     torch.randn(self.local_heads, self.input_dim_layerPE))
             if layer_pe_args['theta_q']:
-                self.to_theta_q = nn.Linear(dim,
-                                            self.input_dim_layerPE *
-                                            self.global_heads,
+                self.to_theta_q = nn.Linear(input_dim,
+                                            self.input_dim_layerPE * self.global_heads,
                                             bias=qkv_bias)
             else:
                 self.to_theta_q = None
 
             n_global_heads = self.heads - self.local_heads
-            if not fast_local_attn:
-                n_local_heads = 0
-            else:
-                n_local_heads = self.local_heads
+            n_local_heads = self.local_heads
             self.layer_pos_emb, self.layer_pos_emb_local = \
                 get_pes(layer_pe=layer_pe, n_global_heads=n_global_heads, n_local_heads=n_local_heads,
                         dataloader_generator=dataloader_generator)
             self.layer_pe_type = layer_pe['type']
         else:
-            self.post_phi_layerPE = True
+            post_phi_layerPE = True
             self.to_theta_q = None
+
+        # qu'est-ce qu'on calcule ?
+        self.compute_features_global = dict()
+        self.compute_features_global["before_pe"] = (self.features_type is not None) and (post_phi_layerPE)
+        self.compute_features_global["after_pe"] = (self.features_type is not None) and (not post_phi_layerPE)
+        self.compute_features_local = dict()
+        self.compute_features_local["before_pe"] = (self.features_type is not None) and fast_local_attn and post_phi_layerPE
+        self.compute_features_local["after_pe"] = (self.features_type is not None) and fast_local_attn and (not post_phi_layerPE)
 
     def forward(self,
                 x,
@@ -190,7 +191,7 @@ class Attention_(nn.Module):
                 global_mask = context_mask[:, None, :, None]
                 v.masked_fill_(~global_mask, 0.)
 
-            if self.post_phi_layerPE:
+            if self.compute_features_global["before_pe"]:
                 if self.features_type == 'favor':
                     q, k = self.feature_map(q, k)
                 elif self.features_type == 'elu':
@@ -246,7 +247,7 @@ class Attention_(nn.Module):
                 q_rot = None
                 k_rot = None
 
-            if not self.post_phi_layerPE:
+            if self.compute_features_global["after_pe"]:
                 if self.features_type == 'favor':
                     q, k = self.feature_map(q, k)
                     if q_rot is not None:
@@ -255,6 +256,7 @@ class Attention_(nn.Module):
                     q, k = map(lambda t: F.elu(t) + 1, (q, k))
                     if q_rot is not None:
                         raise NotImplementedError
+
             if self.features_type is None:
                 _, _, time, dim = q.shape
                 qv = torch.einsum('bhid,bhjd->bhij', q, k) * (dim**-0.5)
@@ -267,69 +269,58 @@ class Attention_(nn.Module):
                 out = torch.einsum('bhij,bhje->bhie', attn, v)
                 state = None
             else:
-                out, state = self.fast_attention(q,
+                out, state = self.global_attention(q,
                                                  k,
                                                  q_rot,
                                                  k_rot,
                                                  v,
                                                  kwargs['states'],
-                                                 kwargs['inferring_states'],
-                                                 horizon=None)
+                                                 kwargs['inferring_states'])
             attn_outs.append(out)
-
         if not empty(lq):
-            assert not cross_attend, 'local attention is not compatible with cross attention'
+            if self.compute_features_local["before_pe"]:
+                if self.features_type == 'favor':
+                    lq, lk = self.feature_map(lq, lk)
+                elif self.features_type == 'elu':
+                    lq, lk = map(lambda t: F.elu(t) + 1, (lq, lk))
 
-            if (self.features_type is not None) and self.fast_local_attn:
-                if self.post_phi_layerPE:
-                    if self.features_type == 'favor':
-                        lq, lk = self.feature_map(lq, lk)
-                    elif self.features_type == 'elu':
-                        lq, lk = map(lambda t: F.elu(t) + 1, (lq, lk))
-
-                if pos_emb_input is not None:
-                    if self.layer_pe_type in ['rototor', 'rototor_fix']:
-                        lpos_emb_q = self.layer_pos_emb_local(
-                            pe_input=pos_emb_input, offset=ltheta_q)
-                        lpos_emb_k = self.layer_pos_emb_local(
-                            pe_input=pos_emb_input, offset=None)
-                        lq_rot = apply_rototor_pos_emb_(lq, lpos_emb_q)
-                        lk_rot = apply_rototor_pos_emb_(lk, lpos_emb_k)
-                    elif self.layer_pe_type == 'rotary':
-
-                        pos_emb = self.layer_pos_emb_local(
-                            pe_input=pos_emb_input)
-                        lq, lk = apply_rotary_pos_emb_(lq, lk, pos_emb)
-                        lq_rot = None
-                        lk_rot = None
-                else:
+            if pos_emb_input is not None:
+                if self.layer_pe_type in ['rototor', 'rototor_fix']:
+                    lpos_emb_q = self.layer_pos_emb_local(
+                        pe_input=pos_emb_input, offset=ltheta_q)
+                    lpos_emb_k = self.layer_pos_emb_local(
+                        pe_input=pos_emb_input, offset=None)
+                    lq_rot = apply_rototor_pos_emb_(lq, lpos_emb_q)
+                    lk_rot = apply_rototor_pos_emb_(lk, lpos_emb_k)
+                elif self.layer_pe_type == 'rotary':
+                    pos_emb = self.layer_pos_emb_local(
+                        pe_input=pos_emb_input)
+                    lq, lk = apply_rotary_pos_emb_(lq, lk, pos_emb)
                     lq_rot = None
                     lk_rot = None
-
-                if self.features_type is None:
-                    _, _, time, dim = lq.shape
-                    lqv = torch.einsum('bhid,bhjd->bhij', lq, lk) * (dim**-0.5)
-                    causal_mask = torch.triu(-float('inf') *
-                                             torch.ones(time, time),
-                                             diagonal=1).to(lqv.device)
-                    lqv_masked = causal_mask[None, None, :, :] + lqv
-                    attn = lqv_masked.softmax(dim=-1)
-                    attn = self.dropout(attn)
-                    out = torch.einsum('bhij,bhje->bhie', attn, lv)
-                    state_local = None
-                else:
-                    out, state_local = self.local_attn(
-                        lq,
-                        lk,
-                        lq_rot,
-                        lk_rot,
-                        lv,
-                        kwargs['states'],
-                        kwargs['inferring_states'],
-                        horizon=self.local_window_size)
             else:
-                out = self.local_attn(lq, lk, lv, input_mask=mask)
-                state = None
+                lq_rot = None
+                lk_rot = None
+
+            if self.compute_features_local["after_pe"]:
+                if self.features_type == 'favor':
+                    lq, lk = self.feature_map(lq, lk)
+                    if lq_rot is not None:
+                        raise NotImplementedError
+                elif self.features_type == 'elu':
+                    lq, lk = map(lambda t: F.elu(t) + 1, (lq, lk))
+                    if lq_rot is not None:
+                        raise NotImplementedError
+
+            out, state_local = self.local_attn(
+                lq,
+                lk,
+                lq_rot,
+                lk_rot,
+                lv,
+                kwargs['states'],
+                kwargs['inferring_states'])
+
             attn_outs.append(out)
 
         out = torch.cat(attn_outs, dim=1)
@@ -406,237 +397,6 @@ class FeatureMap(nn.Module):
             q = create_kernel(q, is_query=True)
             k = create_kernel(k, is_query=False)
         return q, k
-
-
-class FastAttention_(nn.Module):
-    def __init__(self, causal=False):
-        super().__init__()
-        self.causal = causal
-        if causal:
-            self.causal_linear_fn = partial(causal_linear_attention)
-
-    def forward(self, q, k, q_rot, k_rot, v, states, inferring_states,
-                horizon):
-        """
-        inputs are already feature mapped
-        """
-        if states is not None:
-            assert q.size(
-                2
-            ) == 1, 'recurrent inference can only be applied to sequences of len 1'
-            out, states = recursive_attention_step(q, k, q_rot, k_rot, v,
-                                                   states)
-        else:
-            if inferring_states:
-                # TODO(leo): horizon not taken into account!!!!
-                # Pb with default parameters!!!
-                raise NotImplementedError
-                out, states = infer_hidden_states(q, k, q_rot, k_rot, v,
-                                                  horizon)
-            else:
-                attn_fn = linear_attention if not self.causal else self.causal_linear_fn
-                out = attn_fn(q, k, q_rot, k_rot, v, local=horizon)
-                states = None
-        return out, states
-
-
-class LocalAttentionLinear(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    # TODO hardcoded spans
-    def forward(self, q, k, q_rot, k_rot, v, eps=1e-12):
-        k_cumsum = k.cumsum(dim=-2)
-        k_cumsum[:, :, 256:] = k_cumsum[:, :, 256:] - k_cumsum[:, :, :-256]
-        D = torch.einsum('...nd,...nd->...n', q, k_cumsum.type_as(q))
-        if q_rot is not None:
-            k_cumsum_rot = k_rot.cumsum(dim=-2)
-            k_cumsum_rot[:, :,
-                         256:] = k_cumsum_rot[:, :,
-                                              256:] - k_cumsum_rot[:, :, :-256]
-            D_rot = torch.einsum('...nd,...nd->...n', q_rot,
-                                 k_cumsum_rot.type_as(q))
-            D = D + D_rot
-        D_inv = 1. / (D + eps)
-
-        context = torch.einsum('...nd,...ne->...nde', k, v)
-        context_cumsum = context.cumsum(dim=-3)
-        context_cumsum[:, :,
-                       256:] = context_cumsum[:, :,
-                                              256:] - context_cumsum[:, :, :
-                                                                     -256]
-
-        out = torch.einsum('...nde,...nd,...n->...ne', context_cumsum, q,
-                           D_inv)
-        if q_rot is not None:
-            context_rot = torch.einsum('...nd,...ne->...nde', k_rot, v)
-            context_rot_cumsum = context_rot.cumsum(dim=-3)
-            context_rot_cumsum[:, :, :256] = context_rot_cumsum[:, :, 256:] -\
-                context_rot_cumsum[:, :, :-256]
-            out_rot = torch.einsum('...nde,...nd,...n->...ne',
-                                   context_rot_cumsum, q_rot, D_inv)
-            out = out + out_rot
-        return out
-
-
-# inefficient causal linear attention, without cuda code,
-# (used for parallel inference of hidden states in recurrent mode)
-def infer_hidden_states(q, k, q_rot, k_rot, v, chunk_size=128, eps=1e-6):
-    last_k_cumsum = 0
-    last_context_cumsum = 0
-    last_k_cumsum_rot = 0
-    last_context_cumsum_rot = 0
-    outs = []
-    num_chunks = q.size(2) // chunk_size
-    for q, k, q_rot, k_rot, v in zip(
-            *map(lambda t: t.chunk(num_chunks, dim=-2), (q, k, q_rot, k_rot,
-                                                         v))):
-        k_cumsum = last_k_cumsum + k.cumsum(dim=-2)
-        D = torch.einsum('...nd,...nd->...n', q, k_cumsum.type_as(q))
-        context = torch.einsum('...nd,...ne->...nde', k, v)
-        context_cumsum = last_context_cumsum + context.cumsum(dim=-3)
-        if q_rot is not None:
-            for q_rot, k_rot in zip(
-                    *map(lambda t: t.chunk(num_chunks, dim=-2), (q_rot,
-                                                                 k_rot))):
-                k_cumsum_rot = last_k_cumsum_rot + k_rot.cumsum(dim=-2)
-                D_rot = torch.einsum('...nd,...nd->...n', q_rot,
-                                     k_cumsum_rot.type_as(q_rot))
-                context_rot = torch.einsum('...nd,...ne->...nde', k_rot, v)
-                context_cumsum_rot = last_context_cumsum_rot + \
-                    context_rot.cumsum(dim=-3)
-            D_inv = 1. / (D + D_rot + eps)
-        else:
-            D_inv = 1. / (D + eps)
-
-        out = torch.einsum('...nde,...nd,...n->...ne', context_cumsum, q,
-                           D_inv)
-        if q_rot is not None:
-            out_rot = torch.einsum('...nde,...nd,...n->...ne',
-                                   context_cumsum_rot, q_rot, D_inv)
-            out = out + out_rot
-
-        last_k_cumsum = k_cumsum[:, :, -1:]
-        last_context_cumsum = context_cumsum[:, :, -1:]
-        if q_rot is not None:
-            last_k_cumsum_rot = k_cumsum_rot[:, :, -1:]
-            last_context_cumsum_rot = context_cumsum_rot[:, :, -1:]
-        outs.append(out)
-
-    out = torch.cat(outs, dim=-2)
-    if q_rot is None:
-        last_k_cumsum_rot = None
-        last_context_cumsum_rot = None
-    states = dict(Z=last_k_cumsum.squeeze(2),
-                  S=last_context_cumsum.squeeze(2),
-                  Z_rot=last_k_cumsum_rot.squeeze(2),
-                  S_rot=last_context_cumsum_rot.squeeze(2))
-    return out, states
-
-
-def recursive_attention_step(q, k, q_rot, k_rot, v, states, eps=1e-12):
-    k_cumsum = states['Zs'].unsqueeze(2) + k
-    k_cumsum_rot = states['Zs_rot'].unsqueeze(2) + k_rot
-    D = torch.einsum('...nd,...nd->...n', q, k_cumsum.type_as(q))
-    if q_rot is not None:
-        D_rot = torch.einsum('...nd,...nd->...n', q_rot,
-                             k_cumsum_rot.type_as(q_rot))
-        D_inv = 1. / (D + D_rot + eps)
-    else:
-        D_inv = 1. / (D + eps)
-
-    context = torch.einsum('...nd,...ne->...nde', k, v)
-    context_cumsum = states['Ss'].unsqueeze(2) + context
-    if k_rot is not None:
-        context_rot = torch.einsum('...nd,...ne->...nde', k_rot, v)
-        context_cumsum_rot = states['Ss_rot'].unsqueeze(2) + context_rot
-
-    out = torch.einsum('...nde,...nd,...n->...ne', context_cumsum, q, D_inv)
-    if k_rot is not None:
-        out_rot = torch.einsum('...nde,...nd,...n->...ne', context_cumsum_rot,
-                               q_rot, D_inv)
-        out = out_rot + out
-
-    last_k_cumsum = k_cumsum[:, :, 0]
-    last_context_cumsum = context_cumsum[:, :, 0]
-    if q_rot is not None:
-        last_k_cumsum_rot = k_cumsum_rot[:, :, 0]
-        last_context_cumsum_rot = context_cumsum_rot[:, :, 0]
-    else:
-        last_k_cumsum_rot = None
-        last_context_cumsum_rot = None
-    states = dict(Z=last_k_cumsum,
-                  S=last_context_cumsum,
-                  Z_rot=last_k_cumsum_rot,
-                  S_rot=last_context_cumsum_rot)
-    return out, states
-
-
-def get_D(q, k):
-    k_cumsum = k.cumsum(dim=-2)
-    D = torch.einsum('...nd,...nd->...n', q, k_cumsum.type_as(q))
-    return D
-
-
-def get_N(q, k, v):
-    from fast_transformers.causal_product import CausalDotProduct
-    autocast_enabled = torch.is_autocast_enabled()
-    is_half = isinstance(q, torch.cuda.HalfTensor)
-    assert not is_half or APEX_AVAILABLE, 'half tensors can only be used if nvidia apex is available'
-    cuda_context = null_context if not autocast_enabled else partial(
-        autocast, enabled=False)
-    causal_dot_product_fn = amp.float_function(
-        CausalDotProduct.apply) if is_half else CausalDotProduct.apply
-    with cuda_context():
-        if autocast_enabled:
-            q, k, v = map(lambda t: t.float(), (q, k, v))
-        N = causal_dot_product_fn(q, k, v)
-    return N
-
-
-def causal_linear_attention(q, k, q_rot, k_rot, v, local=None, eps=1e-6):
-    if local is not None:
-        # take beginning of k and v
-        k_local = k[:, :, :-local]
-        v_local = v[:, :, :-local]
-        if k_rot is not None:
-            k_rot_local = k_rot[:, :, :-local]
-        # end of q
-        q_local = q[:, :, local:]
-        if q_rot is not None:
-            q_rot_local = q_rot[:, :, local:]
-
-    if q_rot is None:
-        N = get_N(q, k, v)
-        D = get_D(q, k)
-        if local is not None:
-            N_shifted = get_N(q_local, k_local, v_local)
-            N[:, :, local:] = N[:, :, local:] - N_shifted
-            D_shifted = get_D(q_local, k_local)
-            D[:, :, local:] = D[:, :, local:] - D_shifted
-        D_inv = 1. / (D + eps)
-    else:
-        N = (get_N(q, k, v) + get_N(q_rot, k_rot, v))
-        D = get_D(q, k) + get_D(q_rot, k_rot)
-        if local is not None:
-            N_shifted = get_N(q_local, k_local, v_local) + \
-                get_N(q_rot_local, k_rot_local, v_local)
-            N[:, :, local:] = N[:, :, local:] - N_shifted
-            D_shifted = get_D(q_local, k_local) + \
-                get_D(q_rot_local, k_rot_local)
-            D[:, :, local:] = D[:, :, local:] - D_shifted
-        if not torch.all(D > 0):
-            raise Exception('D > 0')
-        D_inv = 1. / (D + eps)
-
-    # *2 pour être sûr ??
-    # N = (2*get_N(q, k, v) + get_N(q_rot, k_rot, v))
-    # D_inv = 1. / (2*get_D(q, k) + get_D(q_rot, k_rot) + eps)
-    out = torch.einsum('...nd,...n->...nd', N, D_inv)
-    if torch.any(torch.isnan(out)):
-        raise Exception('NaN in out')
-    return out
-
 
 def get_pes(layer_pe, n_global_heads, n_local_heads, dataloader_generator):
     layer_pe_type = layer_pe['type']

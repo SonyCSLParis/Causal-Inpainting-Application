@@ -43,7 +43,7 @@ config = {
             positional_embedding_size=128,
             num_channels=4,
             dropout=0.,
-            expand_channels=False    
+            expand_channels=False
         )
     ),
 
@@ -53,13 +53,14 @@ config = {
             embedding_size=512  # sum must be equal to d_model_decoder
         )
     ),
-    # --- Handler type --- 
-    'handler_type': 'event', # event | channel
-    
+    # --- Handler type ---
+    'handler_type': 'event',  # event | channel
+
     # --- Decoder ---
     'decoder_kwargs': dict(
         # autoregressive_decoding only needed if handler_type == 'event
-        autoregressive_decoding='fullcat', # fullcat | mlp | None 
+        autoregressive_decoding='fullcat',  # fullcat | mlp | None
+        type='performer',
         d_model=512,
         n_head=8,
         local_attn_heads=4,
@@ -78,16 +79,16 @@ config = {
         },
         execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' 
         # execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
-        layer_pe=None
-        # layer_pe=dict(
-        #     type='rototor',  # 'rotary', 'spe', 'rototor', 'rototor_fix'
-        #     input='elapsed',  # 'index', 'elapsed'
-        #     args=dict(
-        #         gated_layerSPE=False,
-        #         post_phi_layerPE=True,
-        #         theta_q=False,
-        #     )
-        # )
+        # layer_pe=None
+        layer_pe=dict(
+            type='rototor',  # 'rotary', 'spe', 'rototor', 'rototor_fix'
+            input='elapsed',  # 'index', 'elapsed'
+            args=dict(
+                gated_layerSPE=False,
+                post_phi_layerPE=True,
+                theta_q=False,
+            )
+        )
     ),
     # ======== Training ========
     'lr':                          1e-4,

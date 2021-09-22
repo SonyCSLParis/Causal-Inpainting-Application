@@ -1,4 +1,4 @@
-from CIA.model.utils.positional_embeddings.get_pe_input import get_pe_input
+from CIA.model.positional_embeddings.get_pe_input import get_pe_input
 from CIA.positional_embeddings.positional_embedding import PositionalEmbedding
 from torch import nn
 from CIA.data_processors import DataProcessor
@@ -85,14 +85,15 @@ class CausalEventsModel(nn.Module):
         # compute input to layer positional embeddings
         # TODO HARDCODED set to None
         # self.pe_input_type = None
-        
+
         if self.pe_input_type is not None:
             layer_pos_emb_input = get_pe_input(
                 dataloader_generator=self.dataloader_generator,
                 x_embed=target_seq,
                 h=h_pe_init,
                 metadata_dict=metadata_dict,
-                pe_input_type=self.pe_input_type)
+                pe_input_type=self.pe_input_type,
+                event_representation=True)
 
         # shift target_seq by one
         dummy_input_target = self.sos_embedding(metadata_dict).unsqueeze(1)
@@ -108,20 +109,20 @@ class CausalEventsModel(nn.Module):
         else:
             layer_pos_emb_input = None
         return target_seq, layer_pos_emb_input, h_pe
-    
+
     def event_state_to_weights(self, output, target_embedded):
         weights_per_category = [
         ]
         for channel_id, pre_softmax in enumerate(self.pre_softmaxes):
             weight = pre_softmax(output)
             weights_per_category.append(weight)
-            
+
             # concatenate channels to output
             output = torch.cat(
                 [output, target_embedded[:, :, channel_id]], dim=2
             )
         return weights_per_category
-    
+
     def event_state_to_weight_step(self, output, target_embedded, channel_id):
         """[summary]
 
@@ -135,7 +136,7 @@ class CausalEventsModel(nn.Module):
             output = torch.cat([output, target_embedded[:, i]], dim=1)
         weight = self.pre_softmaxes[channel_id](output)
         return weight
-        
+
 
     def forward(self, target, metadata_dict, h_pe_init=None):
         """
@@ -144,7 +145,7 @@ class CausalEventsModel(nn.Module):
         """
         # compute event_state
         # embed + add positional embedding + offset + transformer pass
-        output, target_embedded, h_pe = self.compute_event_state(target, metadata_dict, h_pe_init)        
+        output, target_embedded, h_pe = self.compute_event_state(target, metadata_dict, h_pe_init)
 
         # auto regressive predictions from output
         weights_per_category = self.event_state_to_weights(
@@ -242,7 +243,7 @@ class CausalEventsModel(nn.Module):
         output = out['x']
         return output, target_embedded, h_pe
 
-    def forward_step(self, target, metadata_dict, i):        
+    def forward_step(self, target, metadata_dict, i):
         raise NotImplementedError
 
     def infer_hidden_states(self, priming_seq, metadata_dict,

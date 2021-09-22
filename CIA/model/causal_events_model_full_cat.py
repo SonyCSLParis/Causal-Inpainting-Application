@@ -1,4 +1,4 @@
-from CIA.model.utils.positional_embeddings.get_pe_input import get_pe_input
+from CIA.model.positional_embeddings.get_pe_input import get_pe_input
 from CIA.positional_embeddings.positional_embedding import PositionalEmbedding
 from torch import nn
 from CIA.data_processors import DataProcessor
@@ -32,7 +32,6 @@ class CausalEventsModelFullCat(nn.Module):
         assert self.num_channels_target == num_channels_decoder
         self.d_model = d_model
         self.num_tokens_target = self.data_processor.num_tokens
-
         assert self.num_tokens_target == num_channels_decoder * num_events_decoder
 
         ######################################################
@@ -60,22 +59,22 @@ class CausalEventsModelFullCat(nn.Module):
         #                                     for num_tokens_of_channel in self.num_tokens_per_channel
         #                                     ]
         #                                    )
-
+        d_last_layer = self.transformer.dim_last_layer
         self.last_mlps = nn.ModuleList(
             [
             # MLPs for autoregressive generation
             nn.Sequential(
-                nn.Linear(self.d_model + channel_id * self.data_processor.embedding_size, self.d_model * 4),
+                nn.Linear(d_last_layer + channel_id * self.data_processor.embedding_size, self.d_model * 4),
                 nn.LeakyReLU(),
                 nn.Linear(self.d_model * 4, self.d_model)
             )
                 for channel_id, num_tokens_of_channel
                 in enumerate(self.num_tokens_per_channel)
         ])
-        
+
         self.pre_softmaxes = nn.ModuleList(
             [
-                nn.Linear(self.d_model * 2  + channel_id * self.data_processor.embedding_size, num_tokens_of_channel)            
+                nn.Linear(self.d_model + d_last_layer + channel_id * self.data_processor.embedding_size, num_tokens_of_channel)
                 for channel_id, num_tokens_of_channel
                 in enumerate(self.num_tokens_per_channel)
         ])
@@ -89,14 +88,16 @@ class CausalEventsModelFullCat(nn.Module):
             target_seq, i=0, h=h_pe_init, metadata_dict=metadata_dict)
         target_seq = self.linear_target(target_seq)
 
-        # compute input to layer positional embeddings        
+        # compute input to layer positional embeddings
         if self.pe_input_type is not None:
             layer_pos_emb_input = get_pe_input(
                 dataloader_generator=self.dataloader_generator,
                 x_embed=target_seq,
                 h=h_pe_init,
                 metadata_dict=metadata_dict,
-                pe_input_type=self.pe_input_type)
+                pe_input_type=self.pe_input_type,
+                event_representation=True,
+                )
 
         # shift target_seq by one
         dummy_input_target = self.sos_embedding(metadata_dict).unsqueeze(1)
@@ -112,7 +113,7 @@ class CausalEventsModelFullCat(nn.Module):
         else:
             layer_pos_emb_input = None
         return target_seq, layer_pos_emb_input, h_pe
-    
+
     def compute_event_state(self, target, metadata_dict, h_pe_init):
         batch_size, _, _ = target.size()
         target_embedded = self.data_processor.embed(target)
@@ -136,6 +137,7 @@ class CausalEventsModelFullCat(nn.Module):
                                inferring_states=False,
                                states=None)
         output = out['x']
+
         return output, target_embedded, h_pe
 
     def forward(self, target, metadata_dict, h_pe_init=None):
@@ -145,7 +147,7 @@ class CausalEventsModelFullCat(nn.Module):
         """
         # compute event_state
         # embed + add positional embedding + offset + transformer pass
-        output, target_embedded, h_pe = self.compute_event_state(target, metadata_dict, h_pe_init)        
+        output, target_embedded, h_pe = self.compute_event_state(target, metadata_dict, h_pe_init)
 
         # auto regressive predictions from output
         weights_per_category = self.event_state_to_weights(
@@ -219,7 +221,7 @@ class CausalEventsModelFullCat(nn.Module):
                     'loss': loss.item()
                 }
             }
-            
+
     def event_state_to_weights(self, output, target_embedded):
         weights_per_category = [
         ]
@@ -228,13 +230,13 @@ class CausalEventsModelFullCat(nn.Module):
             weight = mlp(output)
             weight = pre_softmax(torch.cat([weight, output], dim=2))
             weights_per_category.append(weight)
-            
+
             # concatenate channels to output
             output = torch.cat(
                 [output, target_embedded[:, :, channel_id]], dim=2
             )
         return weights_per_category
-    
+
     def event_state_to_weight_step(self, output, target_embedded, channel_id):
         """[summary]
 
@@ -259,7 +261,7 @@ class CausalEventsModelFullCat(nn.Module):
         :return:
         """
         raise NotImplementedError
-    
+
     def infer_hidden_states(self, priming_seq, metadata_dict,
                             decoding_start_index):
         target_embedded = self.data_processor.embed(priming_seq)

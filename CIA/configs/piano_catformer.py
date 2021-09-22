@@ -8,9 +8,9 @@ config = {
     'dataloader_generator_kwargs': dict(
         sequences_size=1024,
         transformations={
-            'time_dilation': True,
+            'time_dilation':  True,
             'velocity_shift': True,
-            'transposition': True
+            'transposition':  True
         },
         pad_before=True,
     ),  # Can be different from the encoder's data loader
@@ -29,40 +29,44 @@ config = {
         sinusoidal_embedding=dict(
             positional_embedding_size=128,
             num_channels=4,
-            dropout=0.
+            dropout=0.,
+            expand_channels=False
         ),
         sinusoidal_elapsed_time_embedding=dict(
             positional_embedding_size=128,
             num_channels=4,
             dropout=0.,
-            mask_positions=False
-        ),
-        channel_embedding=dict(
-            positional_embedding_size=12,
-            num_channels=4
+            mask_positions=False,
+            expand_channels=False
         ),
         sinusoidal_progress_bar_embedding=dict(
             positional_embedding_size=128,
             num_channels=4,
             dropout=0.,
+            expand_channels=False
         )
     ),
 
     # --- Start Of Sequence embeddings
     'sos_embedding_dict': dict(
         learnt_sos_embedding=dict(
-            embedding_size=512  # sum must be equal to d_model_decoder
+            embedding_size=64  # sum must be equal to d_model_decoder
         )
     ),
 
+    # --- Handler type ---
+    'handler_type': 'event', # event | channel
+
     # --- Decoder ---
     'decoder_kwargs': dict(
-        type='performer',
+        autoregressive_decoding='fullcat', # fullcat | mlp | None
+        type='catformer',
         d_model=64,
         n_head=8,
         local_attn_heads=4,
         fast_local_attn=False,
-        num_decoder_layers=16,
+        local_window_size=64,       # works with batch_size = 8
+        num_decoder_layers=10,
         dropout=0.1,
         label_smoothing=False,
         features={
@@ -84,7 +88,7 @@ config = {
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  8,
+    'batch_size':                  2,
     'num_batches':                 32,
     'num_epochs':                  1500,
 

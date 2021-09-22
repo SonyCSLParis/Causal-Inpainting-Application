@@ -1,9 +1,9 @@
 from numpy import log
 from CIA.dataloaders import dataloader
-from CIA.model.utils.execute_type.reversible_gated import ReversibleGatedSequence_
-from CIA.model.utils.execute_type.gated import GatedSequence_
-from CIA.model.utils.execute_type.reversible import ReversibleSequence_
-from CIA.model.utils.attentions.attentions import CrossAttention_, SelfAttention_
+from CIA.model.execute_type.reversible_gated import ReversibleGatedSequence_
+from CIA.model.execute_type.gated import GatedSequence_
+from CIA.model.execute_type.reversible import ReversibleSequence_
+from CIA.model.attentions.attentions import CrossAttention_, SelfAttention_
 import torch.nn as nn
 from functools import partial
 
@@ -48,6 +48,7 @@ class Performer_(nn.Module):
         local_attn_heads = cast_tuple(local_attn_heads)
 
         self.max_seq_len = max_seq_len
+        self.dim_last_layer = dim
 
         self.dropout = nn.Dropout(emb_dropout)
         self.norm = nn.LayerNorm(dim)
@@ -128,7 +129,7 @@ class _Performer_(nn.Module):
 
         for _, local_heads in zip(range(depth), local_attn_heads):
             layers.append(nn.ModuleList([
-                wrapper_fn(SelfAttention_(dim, causal=causal, heads=heads, dim_head=dim_head, local_heads=local_heads,
+                wrapper_fn(SelfAttention_(input_dim=dim, output_dim=dim, causal=causal, heads=heads, local_heads=local_heads,
                                           fast_local_attn=fast_local_attn,
                                           local_window_size=local_window_size, features=features,
                                           generalized_attention=generalized_attention, kernel_fn=kernel_fn,
