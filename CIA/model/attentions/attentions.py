@@ -14,7 +14,25 @@ from CIA.model.positional_embeddings.apply_pe import apply_rotary_pos_emb_, appl
 from CIA.model.attentions.local_attention import LocalAttention_
 from CIA.model.attentions.fast_attention import FastAttention_
 
+class DepthwiseConv(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.conv = nn.Conv1d(in_channels=dim,
+                                            out_channels=dim,
+                                            kernel_size=3,
+                                            padding=2,
+                                            groups=dim)
+        
+    def forward(self, x):
+        batch_size, length, features = x.size()
+        x = x.transpose(1,2)
+        
+        x = self.conv(x)
+        x = x.transpose(1,2)
+        return x[:, :length]
+        
 
+        
 class Attention_(nn.Module):
     def __init__(
         self,
@@ -84,6 +102,16 @@ class Attention_(nn.Module):
         self.to_q = nn.Linear(input_dim, inner_dim, bias=qkv_bias)
         self.to_k = nn.Linear(input_dim, inner_dim, bias=qkv_bias)
         self.to_v = nn.Linear(input_dim, inner_dim, bias=qkv_bias)
+        # TODO TEST with depth-wise Conv
+        # self.to_q = nn.Sequential(nn.Linear(dim, inner_dim, bias=qkv_bias),
+        #                           DepthwiseConv(inner_dim)
+        #                           )
+        # self.to_k = nn.Sequential(nn.Linear(dim, inner_dim, bias=qkv_bias),
+        #                           DepthwiseConv(inner_dim)
+        #                           )
+        # self.to_v = nn.Sequential(nn.Linear(dim, inner_dim, bias=qkv_bias),
+        #                           DepthwiseConv(inner_dim)
+        #                           )
         self.to_out = nn.Linear(inner_dim, output_dim, bias=attn_out_bias)
         self.dropout = nn.Dropout(dropout)
 

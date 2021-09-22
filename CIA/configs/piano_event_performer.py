@@ -64,12 +64,12 @@ config = {
         d_model=512,
         n_head=8,
         local_attn_heads=4,
-        fast_local_attn=False,
+        fast_local_attn=False,        
         # previous "default" values
         # local_window_size=256,
         # num_decoder_layers=16,
-        local_window_size=64,  # works with batch_size = 8
-        num_decoder_layers=10,
+        local_window_size=256, # works with batch_size = 8
+        num_decoder_layers=16,
         dropout=0.1,
         label_smoothing=False,
         features={
@@ -77,7 +77,7 @@ config = {
             # 'args': dict(n_features=256),  # 'favor args
             'args': dict(),  # elu args
         },
-        execute_type='gated',  # 'reversible' (Reformer paper), 'gated'
+        execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' 
         # execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
         # layer_pe=None
         layer_pe=dict(
@@ -92,9 +92,9 @@ config = {
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  4,
+    'batch_size':                  16,
     'num_batches':                 32,
-    'num_epochs':                  3000,
+    'num_epochs':                  1500000,
 
     # ======== model ID ========
     'timestamp':                   None,
