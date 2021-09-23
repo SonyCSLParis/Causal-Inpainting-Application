@@ -1,4 +1,5 @@
 # TODO: Clean imports (like the handlers' one)
+from CIA.model.transformer.perceiverio import PerceiverIO
 from CIA.model.transformer.catformer import Catformer
 from CIA.model.causal_events_model import CausalEventsModel
 from CIA.model.causal_events_model_full_cat import CausalEventsModelFullCat
@@ -220,6 +221,8 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
             layer_pe=layer_pe,
             dataloader_generator=dataloader_generator
         )
+    elif decoder_kwargs['type'] == 'perceiverio':
+        transformer = PerceiverIO(dim=512, num_layers=20)
     else:
         raise NotImplementedError
 

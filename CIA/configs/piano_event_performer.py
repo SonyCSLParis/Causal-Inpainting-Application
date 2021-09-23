@@ -58,9 +58,9 @@ config = {
 
     # --- Decoder ---
     'decoder_kwargs': dict(
+        type='perceiverio',
         # autoregressive_decoding only needed if handler_type == 'event
         autoregressive_decoding='fullcat',  # fullcat | mlp | None
-        type='performer',
         d_model=512,
         n_head=8,
         local_attn_heads=4,
@@ -92,7 +92,7 @@ config = {
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  16,
+    'batch_size':                  26,
     'num_batches':                 32,
     'num_epochs':                  1500000,
 
