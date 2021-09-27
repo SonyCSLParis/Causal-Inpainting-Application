@@ -94,6 +94,7 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
     # positional embedding
     positional_embedding: PositionalEmbedding = get_positional_embedding(
         dataloader_generator=dataloader_generator,
+        data_processor=data_processor,
         positional_embedding_dict=config['positional_embedding_dict'])
 
     # sos embedding
@@ -143,7 +144,7 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
     if hasattr(decoder_handler.model.module.transformer, 'fix_projection_matrices_'):
         decoder_handler.model.module.transformer.fix_projection_matrices_()
 
-    # exemple = dict(path='/home/leo/Data/databases/Piano/ecomp_piano_dataset/Abdelmola01.MID', num_events_middle=500,
+    # exemple = dict(path='/home/leo/Data/databases/Piano/ecomp_piano_dataset/Abdelmola01.MID', num_events_inpainted=500,
     #                start=0)
     exemple = None
 
@@ -153,7 +154,7 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
                                                                  shuffle_val=True)
         original_x = next(generator_val)['x']
         x, metadata_dict = data_processor.preprocess(
-            original_x, num_events_middle=None)
+            original_x, num_events_inpainted=None)
     else:
         # read midi file
         x = dataloader_generator.dataset.process_score(exemple['path'])
@@ -168,7 +169,7 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
             .unsqueeze(0)
         # preprocess
         x, metadata_dict = data_processor.preprocess(
-            original_x, num_events_middle=exemple['num_events_middle'])
+            original_x, num_events_inpainted=exemple['num_events_inpainted'])
 
     # reconstruct original sequence to check post-processing
     # x_postprocess = data_processor.postprocess(

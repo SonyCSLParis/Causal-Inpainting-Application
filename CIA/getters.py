@@ -1,4 +1,6 @@
 # TODO: Clean imports (like the handlers' one)
+from CIA.positional_embeddings.sinusoidal_remaining_time_embedding import SinusoidalRemainingTimeEmbedding
+from CIA.data_processors.piano_prefixEnd_data_processor import PianoPrefixEndDataProcessor
 from CIA.model.transformer.catformer import Catformer
 from CIA.model.causal_events_model import CausalEventsModel
 from CIA.model.causal_events_model_full_cat import CausalEventsModelFullCat
@@ -7,12 +9,13 @@ from CIA.model.transformer.performer import Performer_
 from CIA.model.causal_model import CausalModel
 from CIA.dataloaders import BachDataloaderGenerator, PianoDataloaderGenerator
 from CIA.data_processors import BachDataProcessor, MaskedPianoSourceTargetDataProcessor, PianoDataProcessor, \
-    PianoPrefixDataProcessor, MaskedBachSourceTargetDataProcessor
+    PianoPrefixDataProcessor, MaskedBachSourceTargetDataProcessor, data_processor
 from CIA.dataloaders.nes_dataloader import NESDataloader
 from CIA.start_of_sequence_embeddings import SOSEmbedding, BaseSOSEmbedding, LearntSOSEmbedding
 from CIA.positional_embeddings import ChannelEmbeddings, BasePositionalEmbedding, PositionalEmbedding, \
     SinusoidalElapsedTimeEmbedding, SinusoidalPositionalEmbedding, SinusoidalProgressBarEmbedding
 from .handlers import DecoderEventsHandler, DecoderPrefixHandler
+
 
 def get_dataloader_generator(dataset, dataloader_generator_kwargs):
     if dataset.lower() == 'bach':
@@ -23,6 +26,7 @@ def get_dataloader_generator(dataset, dataloader_generator_kwargs):
             sequences_size=dataloader_generator_kwargs['sequences_size'],
             transformations=dataloader_generator_kwargs['transformations'],
             pad_before=dataloader_generator_kwargs['pad_before'],
+            pad_after=dataloader_generator_kwargs['pad_after'],
             num_elements=None)
     elif dataset.lower() == 'piano_test':
         return PianoDataloaderGenerator(
@@ -39,7 +43,6 @@ def get_dataloader_generator(dataset, dataloader_generator_kwargs):
 
 def get_data_processor(dataloader_generator, data_processor_type,
                        data_processor_kwargs):
-
     if data_processor_type == 'bach':
         # compute num_events num_tokens_per_channel
         dataset = dataloader_generator.dataset
@@ -68,13 +71,27 @@ def get_data_processor(dataloader_generator, data_processor_type,
             len(value2index[feature])
             for feature in dataloader_generator.features
         ]
-
         data_processor = PianoPrefixDataProcessor(
             dataloader_generator=dataloader_generator,
             embedding_size=data_processor_kwargs['embedding_size'],
             num_events=num_events,
             num_events_before=data_processor_kwargs['num_events_before'],
             num_events_after=data_processor_kwargs['num_events_after'],
+            num_tokens_per_channel=num_tokens_per_channel)
+    elif data_processor_type == 'piano_prefixEnd':
+        num_events = dataloader_generator.sequences_size
+        value2index = dataloader_generator.dataset.value2index
+        num_tokens_per_channel = [
+            len(value2index[feature])
+            for feature in dataloader_generator.features
+        ]
+        data_processor = PianoPrefixEndDataProcessor(
+            dataloader_generator=dataloader_generator,
+            embedding_size=data_processor_kwargs['embedding_size'],
+            num_events=num_events,
+            num_events_local_window=data_processor_kwargs[
+                'num_events_local_window'],
+            num_events_end=data_processor_kwargs['num_events_end'],
             num_tokens_per_channel=num_tokens_per_channel)
     else:
         raise NotImplementedError
@@ -117,7 +134,7 @@ def get_source_target_data_processor(dataloader_generator, data_processor_type,
     return data_processor
 
 
-def get_positional_embedding(dataloader_generator,
+def get_positional_embedding(dataloader_generator, data_processor,
                              positional_embedding_dict) -> PositionalEmbedding:
     base_positional_embedding_list = []
     for pe_name, pe_kwargs in positional_embedding_dict.items():
@@ -136,10 +153,18 @@ def get_positional_embedding(dataloader_generator,
             base_pe = ChannelEmbeddings(**pe_kwargs)
         elif pe_name == 'sinusoidal_elapsed_time_embedding':
             base_pe: BasePositionalEmbedding = SinusoidalElapsedTimeEmbedding(
-                dataloader_generator=dataloader_generator, **pe_kwargs)
+                dataloader_generator=dataloader_generator,
+                data_processor=data_processor,
+                **pe_kwargs)
         elif pe_name == 'sinusoidal_progress_bar_embedding':
             base_pe: BasePositionalEmbedding = SinusoidalProgressBarEmbedding(
                 dataloader_generator=dataloader_generator,
+                data_processor=data_processor,
+                **pe_kwargs)
+        elif pe_name == 'sinusoidal_remaining_time_embedding':
+            base_pe: BasePositionalEmbedding = SinusoidalRemainingTimeEmbedding(
+                dataloader_generator=dataloader_generator,
+                data_processor=data_processor,
                 **pe_kwargs)
         else:
             raise NotImplementedError
@@ -172,11 +197,11 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
     if decoder_kwargs['type'] == 'performer':
         # TODO max_sequence_length is WRONG when channels are not expanded
         transformer = Performer_(
-            max_seq_len=max_seq_len,    # max sequence length
-            dim=decoder_kwargs['d_model'],                  # dimension
-            depth=decoder_kwargs['num_decoder_layers'],     # layers
-            heads=decoder_kwargs['n_head'],                 # heads
-            causal=True,                  # auto-regressive or not
+            max_seq_len=max_seq_len,  # max sequence length
+            dim=decoder_kwargs['d_model'],  # dimension
+            depth=decoder_kwargs['num_decoder_layers'],  # layers
+            heads=decoder_kwargs['n_head'],  # heads
+            causal=True,  # auto-regressive or not
             features=features,
             # how frequently to redraw the projection matrix, the more frequent, the slower the training
             feature_redraw_interval=100000,
@@ -186,40 +211,42 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
             kernel_fn=nn.ReLU(),
             # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
             execute_type=decoder_kwargs['execute_type'],
-            ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
-            use_scalenorm=False,          # use scale norm, from 'Transformers without Tears' paper
-            use_rezero=False,             # use rezero, from 'Rezero is all you need' paper
-            ff_glu=True,                  # use GLU variant for feedforward
-            emb_dropout=decoder_kwargs['dropout'],          # embedding dropout
+            ff_chunks=10,  # chunk feedforward layer, from Reformer paper
+            use_scalenorm=
+            False,  # use scale norm, from 'Transformers without Tears' paper
+            use_rezero=False,  # use rezero, from 'Rezero is all you need' paper
+            ff_glu=True,  # use GLU variant for feedforward
+            emb_dropout=decoder_kwargs['dropout'],  # embedding dropout
             # feedforward dropout
             ff_dropout=decoder_kwargs['dropout'],
-            attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
+            attn_dropout=decoder_kwargs['dropout'],  # post-attn dropout
             # No local attention. With: decoder_kwargs['n_head']//2 ??
             local_attn_heads=decoder_kwargs['local_attn_heads'],
-            local_window_size=decoder_kwargs['local_window_size'],        # window size of local attention,
+            local_window_size=decoder_kwargs[
+                'local_window_size'],  # window size of local attention,
             fast_local_attn=decoder_kwargs['fast_local_attn'],
             layer_pe=layer_pe,
-            dataloader_generator=dataloader_generator
-        )
+            dataloader_generator=dataloader_generator)
     elif decoder_kwargs['type'] == 'catformer':
         transformer = Catformer(
-            dim_first_layer=decoder_kwargs['d_model'],      # dimension
-            expansion_factor_attn=2,                        # http://proceedings.mlr.press/v139/davis21a/davis21a-supp.pdf
+            dim_first_layer=decoder_kwargs['d_model'],  # dimension
+            expansion_factor_attn=
+            2,  # http://proceedings.mlr.press/v139/davis21a/davis21a-supp.pdf
             expansion_factor_ff=4,
-            depth=decoder_kwargs['num_decoder_layers'],     # layers
-            heads=decoder_kwargs['n_head'],                 # heads
+            depth=decoder_kwargs['num_decoder_layers'],  # layers
+            heads=decoder_kwargs['n_head'],  # heads
             features=features,
-            ff_chunks=10,                 # chunk feedforward layer, from Reformer paper
-            ff_glu=True,                  # use GLU variant for feedforward
-            emb_dropout=decoder_kwargs['dropout'],          # embedding dropout
-            ff_dropout=decoder_kwargs['dropout'],           # feedforward dropout
-            attn_dropout=decoder_kwargs['dropout'],         # post-attn dropout
+            ff_chunks=10,  # chunk feedforward layer, from Reformer paper
+            ff_glu=True,  # use GLU variant for feedforward
+            emb_dropout=decoder_kwargs['dropout'],  # embedding dropout
+            ff_dropout=decoder_kwargs['dropout'],  # feedforward dropout
+            attn_dropout=decoder_kwargs['dropout'],  # post-attn dropout
             local_attn_heads=decoder_kwargs['local_attn_heads'],
-            local_window_size=decoder_kwargs['local_window_size'],        # window size of local attention,
+            local_window_size=decoder_kwargs[
+                'local_window_size'],  # window size of local attention,
             fast_local_attn=decoder_kwargs['fast_local_attn'],
             layer_pe=layer_pe,
-            dataloader_generator=dataloader_generator
-        )
+            dataloader_generator=dataloader_generator)
     else:
         raise NotImplementedError
 
@@ -236,7 +263,8 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
             transformer=transformer,
             pe_input_type=pe_input_type)
     elif handler_type == 'event':
-        autoregressive_decoding_type = decoder_kwargs['autoregressive_decoding']
+        autoregressive_decoding_type = decoder_kwargs[
+            'autoregressive_decoding']
         if autoregressive_decoding_type == 'fullcat':
             decoder = CausalEventsModelFullCat(
                 data_processor=data_processor,

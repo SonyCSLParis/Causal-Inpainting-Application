@@ -91,7 +91,7 @@ class CausalEventsModelFullCat(nn.Module):
         # compute input to layer positional embeddings
         if self.pe_input_type is not None:
             layer_pos_emb_input = get_pe_input(
-                dataloader_generator=self.dataloader_generator,
+                data_processor=self.data_processor,
                 x_embed=target_seq,
                 h=h_pe_init,
                 metadata_dict=metadata_dict,

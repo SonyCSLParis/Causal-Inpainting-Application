@@ -36,7 +36,7 @@ DEBUG = False
 @click.option('-o', '--overfitted', is_flag=True)
 @click.option('-c', '--config', type=click.Path(exists=True))
 @click.option('-n', '--num_workers', type=int, default=0)
-def launcher(cmd, overfitted, config, num_workers):    
+def launcher(cmd, overfitted, config, num_workers):
     # === Init process group
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = str(get_free_port())
@@ -89,6 +89,7 @@ def main(rank, overfitted, config, num_workers, world_size, model_dir):
     # positional embedding
     positional_embedding: PositionalEmbedding = get_positional_embedding(
         dataloader_generator=dataloader_generator,
+        data_processor=data_processor,
         positional_embedding_dict=config['positional_embedding_dict'])
 
     # sos embedding
@@ -104,20 +105,20 @@ def main(rank, overfitted, config, num_workers, world_size, model_dir):
                           training_phase=False,
                           handler_type=config['handler_type']
                           )
-    
+
 
     decoder.to(device)
     decoder = DistributedDataParallel(module=decoder,
                                       device_ids=[rank],
                                       output_device=rank)
-    
+
     global handler
     handler = get_handler(
         handler_type=config['handler_type'],
         decoder=decoder,
         model_dir=model_dir,
         dataloader_generator=dataloader_generator)
-    
+
     # Load
     if overfitted:
         handler.load(early_stopped=False)

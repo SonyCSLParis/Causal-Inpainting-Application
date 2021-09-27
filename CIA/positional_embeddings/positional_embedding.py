@@ -6,7 +6,7 @@ class BasePositionalEmbedding(nn.Module):
         super().__init__()
         # BasePositionalEmbedding must define
         # positional_embedding_size
-        
+
         self.expand_channels = expand_channels
         # expand_channels is True if the BasePositionalEmbeddings are the one used in PIAv1 (one token is one channel)
 

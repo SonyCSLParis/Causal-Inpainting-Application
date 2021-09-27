@@ -10,6 +10,7 @@ class PianoDataloaderGenerator(DataloaderGenerator):
                  sequences_size,
                  transformations,
                  pad_before,
+                 pad_after,
                  num_elements,
                  *args, **kwargs):
         legacy = True
@@ -28,7 +29,8 @@ class PianoDataloaderGenerator(DataloaderGenerator):
             velocity_shift=20,
             transformations=transformations,
             different_time_table_ts_duration=not legacy,
-            pad_before=pad_before
+            pad_before=pad_before,
+            pad_after=pad_after
         )
 
         super(PianoDataloaderGenerator, self).__init__(dataset=dataset)
@@ -88,7 +90,9 @@ class PianoDataloaderGenerator(DataloaderGenerator):
             timeshift_indices,
             smallest_time_shift=0.02
         )
-        return y.cumsum(dim=-1)
+        cumsum_y = y.cumsum(dim=-1)
+        assert torch.all(cumsum_y[:, 1:] >= cumsum_y[:, :-1]-1e-3)
+        return cumsum_y
 
     def get_feature_index(self, feature_name):
         return self.features.index(feature_name)
