@@ -12,7 +12,7 @@ config = {
             'velocity_shift': True,
             'transposition':  True
         },
-        pad_before=local_window_size,
+        pad_before=local_window_size-1,
         pad_after=-local_window_size
     ),  # Can be different from the encoder's data loader
 
@@ -94,8 +94,8 @@ config = {
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  8,
-    'num_batches':                 32,
+    'batch_size':                  4,
+    'num_batches':                 64,
     'num_epochs':                  3000,
 
     # ======== model ID ========

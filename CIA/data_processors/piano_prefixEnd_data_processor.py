@@ -76,7 +76,7 @@ class PianoPrefixEndDataProcessor(DataProcessor):
         max_num_events_suffix = sequences_size - (self.num_events_end +
                                                   num_meta_events) - 1
         if num_events_suffix is None:
-            num_events_suffix = random.randint(1, max_num_events_suffix)
+            num_events_suffix = random.randint(self.num_events_local_window+1, max_num_events_suffix)
         else:
             assert (num_events_suffix > self.num_events_local_window
                     ), 'wrong number of events to be inpainted'
@@ -214,12 +214,12 @@ class PianoPrefixEndDataProcessor(DataProcessor):
                 batch_size, num_events_output, 1))
         final_mask = padding_mask + sod_mask + start_mask
         # add local windows, we only want "valid" local windows
-        final_mask[:, 0, :] = True
+        final_mask[:, :self.num_events_local_window, :] = True
         final_mask[:, self.num_events_end + 1:self.num_events_end + 1 +
                    self.num_events_local_window, :] = True
 
         # decoding_start and decoding_end
-        # decoding_start = self.num_events_end + 1
+        decoding_start = self.num_events_end + 1
         # valid_suffix_len = torch.where(suffix_tensor[:, :, 0] == self.end_tokens[0])[0][0] + 1
         # decoding_end = (self.num_events_end + 1 + valid_suffix_len)
 
@@ -227,7 +227,7 @@ class PianoPrefixEndDataProcessor(DataProcessor):
         # of the SOD symbol (only the placeholder is added)
         metadata_dict = {
             'placeholder_duration': None,
-            # 'decoding_start': decoding_start,
+            'decoding_start': decoding_start,
             # 'decoding_end': decoding_end,
             'original_sequence': y,
             'loss_mask': final_mask
