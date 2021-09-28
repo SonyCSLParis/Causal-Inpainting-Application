@@ -6,7 +6,41 @@ from CIA.dataloaders.dataloader import DataloaderGenerator
 from CIA.utils import flatten, categorical_crossentropy
 import torch
 
-
+class GeneralSWIGLU(nn.Module):
+    def __init__(self, input_dim,
+                 hidden_dim,
+                 output_dim,
+                 dropout):
+        super().__init__()
+        self.w1 = nn.Linear(input_dim, hidden_dim * 2)
+        self.w2 = nn.Linear(hidden_dim, output_dim)
+        self.silu = lambda x: x * torch.sigmoid(x)        
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, x):
+        x, v = self.w1(x).chunk(2, dim=-1)
+        x = self.silu(x) * v
+        x = self.dropout(x)
+        x = self.w2(x)
+        return x
+    
+class GEGLU(nn.Module):
+    def __init__(self, input_dim,
+                 hidden_dim,
+                 output_dim,
+                 dropout):
+        super().__init__()
+        self.w1 = nn.Linear(input_dim, hidden_dim * 2)
+        self.w2 = nn.Linear(hidden_dim, output_dim)
+        self.gelu = nn.GELU()
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, x):
+        x, v = self.w1(x).chunk(2, dim=-1)
+        x = self.gelu(x) * v
+        x = self.dropout(x)
+        x = self.w2(x)
+        return x
 class CausalEventsModelFullCat(nn.Module):
     def __init__(
         self,
@@ -63,11 +97,18 @@ class CausalEventsModelFullCat(nn.Module):
         self.last_mlps = nn.ModuleList(
             [
             # MLPs for autoregressive generation
-            nn.Sequential(
-                nn.Linear(d_last_layer + channel_id * self.data_processor.embedding_size, self.d_model * 4),
-                nn.LeakyReLU(),
-                nn.Linear(self.d_model * 4, self.d_model)
-            )
+            # nn.Sequential(
+            #     nn.Linear(d_last_layer + channel_id * self.data_processor.embedding_size, self.d_model * 4),
+            #     nn.LeakyReLU(),
+            #     nn.Linear(self.d_model * 4, self.d_model)
+            # )
+            # Or SWIGLUs?
+            GeneralSWIGLU(input_dim=d_last_layer + channel_id * self.data_processor.embedding_size,
+                          hidden_dim=self.d_model * 4,
+                          output_dim=self.d_model,
+                          dropout=0
+                          )
+            
                 for channel_id, num_tokens_of_channel
                 in enumerate(self.num_tokens_per_channel)
         ])
@@ -98,7 +139,8 @@ class CausalEventsModelFullCat(nn.Module):
                 pe_input_type=self.pe_input_type,
                 event_representation=True,
                 )
-
+            
+        # TODO to remove WE DO NOT SHIFT HERE!
         # shift target_seq by one
         dummy_input_target = self.sos_embedding(metadata_dict).unsqueeze(1)
         target_seq = torch.cat([dummy_input_target, target_seq], dim=1)

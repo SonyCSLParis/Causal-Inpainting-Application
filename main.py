@@ -114,7 +114,10 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
     decoder.to(device)
     decoder = DistributedDataParallel(module=decoder,
                                       device_ids=[rank],
-                                      output_device=rank)
+                                      output_device=rank
+    )
+                                    #   ,
+                                    #   find_unused_parameters=True)
 
     decoder_handler = get_handler(
         handler_type=config['handler_type'],

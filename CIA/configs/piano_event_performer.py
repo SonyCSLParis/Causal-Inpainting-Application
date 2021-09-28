@@ -79,20 +79,20 @@ config = {
         },
         execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' 
         # execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
-        # layer_pe=None
-        layer_pe=dict(
-            type='rototor',  # 'rotary', 'spe', 'rototor', 'rototor_fix'
-            input='elapsed',  # 'index', 'elapsed'
-            args=dict(
-                gated_layerSPE=False,
-                post_phi_layerPE=True,
-                theta_q=False,
-            )
-        )
+        layer_pe=None
+        # layer_pe=dict(
+        #     type='rototor',  # 'rotary', 'spe', 'rototor', 'rototor_fix'
+        #     input='elapsed',  # 'index', 'elapsed'
+        #     args=dict(
+        #         gated_layerSPE=False,
+        #         post_phi_layerPE=True,
+        #         theta_q=False,
+        #     )
+        # )
     ),
     # ======== Training ========
     'lr':                          1e-4,
-    'batch_size':                  26,
+    'batch_size':                  6,
     'num_batches':                 32,
     'num_epochs':                  1500000,
 

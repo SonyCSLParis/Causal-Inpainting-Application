@@ -222,7 +222,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
             dataloader_generator=dataloader_generator
         )
     elif decoder_kwargs['type'] == 'perceiverio':
-        transformer = PerceiverIO(dim=512, num_layers=20)
+        transformer = PerceiverIO(dim=512, num_layers=6, dropout=0.1)
     else:
         raise NotImplementedError
 

@@ -1,5 +1,5 @@
 from CIA.dataloaders.dataloader import DataloaderGenerator
-from CIA.utils import display_monitored_quantities, is_main_process
+from CIA.utils import Adafactor, display_monitored_quantities, is_main_process
 import torch
 import os
 from torch.nn.parallel import DistributedDataParallel
@@ -20,9 +20,11 @@ class Handler:
 
     def init_optimizers(self, lr=1e-3):
         # self.optimizer = torch.optim.Adam(list(self.parameters()), lr=lr)
-        self.optimizer = torch.optim.AdamW(list(self.parameters()),
-                                           lr=lr,
-                                           weight_decay=1e-3)
+        # self.optimizer = torch.optim.AdamW(list(self.parameters()),
+        #                                    lr=lr,
+        #                                    weight_decay=1e-3)
+        self.optimizer = Adafactor(
+            self.parameters())
 
     # ==== Wrappers
     def forward(self, target, metadata_dict):
