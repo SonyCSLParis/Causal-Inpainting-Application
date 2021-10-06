@@ -121,10 +121,9 @@ class CausalEventsModelFullCat(nn.Module):
 
         # WE do NOT flatten
         # target_seq = flatten(target_embedded)
+        # target_seq is (batch_size, num_vents, dim * num_channels)
         target_seq = torch.cat(target_embedded.split(1, dim=2),
                                dim=3).squeeze(2)
-
-        # target_seq is (batch_size, num_vents, dim * num_channels)
 
         target_seq, layer_pos_emb_input, h_pe = self.prepare_sequence(
             target_seq, metadata_dict, h_pe_init)

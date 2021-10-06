@@ -17,7 +17,6 @@ config = {
     ),  # Can be different from the encoder's data loader
 
     # --- DataProcessor ---
-    # can be used to filter out some channels
     'data_processor_type':         'piano_prefixEnd',
     'data_processor_kwargs':       dict(
         embedding_size=64,
@@ -95,8 +94,8 @@ config = {
     # ======== Training ========
     'lr':                          1e-4,
     'batch_size':                  4,
-    'num_batches':                 64,
-    'num_epochs':                  3000,
+    'num_batches':                 11,
+    'num_epochs':                  3000000,
 
     # ======== model ID ========
     'timestamp':                   None,

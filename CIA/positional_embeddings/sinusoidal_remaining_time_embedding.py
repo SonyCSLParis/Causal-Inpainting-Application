@@ -29,18 +29,18 @@ class SinusoidalRemainingTimeEmbedding(BasePositionalEmbedding):
 
         # add embedding_dim to elapsed time
         elapsed_time = self.data_processor.compute_elapsed_time(metadata_dict)
-        elapsed_time = elapsed_time.unsqueeze(2)
-        # Scaling
-        elapsed_time = elapsed_time * 100
-        remaining_time = elapsed_time[:, -1:, :] - elapsed_time
+        remaining_time = metadata_dict['placeholder_duration'].unsqueeze(1) - elapsed_time
         # zero remaining_time in prefix
         remaining_time[:, :self.data_processor.num_events_end] = 0
         assert torch.all(remaining_time >= -9e-3), f'negative remaining_time values: {torch.min(remaining_time)}'
+        remaining_time = remaining_time.unsqueeze(2)
+        # scaling
+        remaining_time = remaining_time * 100
 
+        # sinusoid
         pe = torch.zeros(batch_size, num_events,
                          self.positional_embedding_size)
         pe = pe.to(device=x_embed.device)
-
         div_term = torch.exp(
             torch.arange(0, self.positional_embedding_size, 2).float() *
             (-math.log(10000.0) / self.positional_embedding_size))

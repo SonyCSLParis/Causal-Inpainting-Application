@@ -30,14 +30,13 @@ class SinusoidalElapsedTimeEmbedding(BasePositionalEmbedding):
         # add embedding_dim to elapsed time
         elapsed_time = self.data_processor.compute_elapsed_time(metadata_dict)
         elapsed_time = elapsed_time.unsqueeze(2)
-
         # TODO scale?! only 10?!
         elapsed_time = elapsed_time * 100
 
+        # sinusoids
         pe = torch.zeros(batch_size, num_events,
                          self.positional_embedding_size)
         pe = pe.to(device=x_embed.device)
-
         div_term = torch.exp(
             torch.arange(0, self.positional_embedding_size, 2).float() *
             (-math.log(10000.0) / self.positional_embedding_size))

@@ -172,8 +172,8 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
             original_x, num_events_inpainted=exemple['num_events_inpainted'])
 
     # reconstruct original sequence to check post-processing
-    # x_postprocess = data_processor.postprocess(
-    #     x, decoding_end=metadata_dict['decoding_end'], metadata_dict=metadata_dict)
+    x_postprocess = data_processor.postprocess(
+        x, decoding_end=metadata_dict['decoding_end'], metadata_dict=metadata_dict)
 
     ############################################################
     # inpainting
@@ -210,10 +210,10 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
         path_no_extension = f'{decoder_handler.model_dir}/generations/{timestamp}_{k}_original'
         decoder_handler.dataloader_generator.write(tensor_score,
                                                    path_no_extension)
-    # for k, tensor_score in enumerate(x_postprocess):
-    #     path_no_extension = f'{decoder_handler.model_dir}/generations/{timestamp}_{k}_original_postprocess'
-    #     decoder_handler.dataloader_generator.write(tensor_score,
-    #                                                path_no_extension)
+    for k, tensor_score in enumerate(x_postprocess):
+        path_no_extension = f'{decoder_handler.model_dir}/generations/{timestamp}_{k}_original_postprocess'
+        decoder_handler.dataloader_generator.write(tensor_score,
+                                                   path_no_extension)
 
 
 if __name__ == '__main__':

@@ -83,6 +83,7 @@ class PianoDataloaderGenerator(DataloaderGenerator):
         x is (batch_size, num_events, num_channels)
         """
         assert 'time_shift' in self.features
+        assert x.shape[2] == 4
 
         timeshift_indices = x[:, :, self.features.index('time_shift')]
         # convert timeshift indices to their actual duration:

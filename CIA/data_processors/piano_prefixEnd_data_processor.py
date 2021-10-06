@@ -100,8 +100,10 @@ class PianoPrefixEndDataProcessor(DataProcessor):
         start_token_location = torch.argmax(is_start_token.long(), dim=1)
         end_token_location = torch.argmax(is_end_token.long(), dim=1)
 
+
         before = x[:, :num_events_suffix]
         after = x[:, num_events_suffix:num_events_suffix + self.num_events_end]
+        placeholder_duration = self.dataloader_generator.get_elapsed_time(before)[:, -1]
 
         prefix_list, suffix_list = [], []
         # TODO batch this?!
@@ -219,16 +221,16 @@ class PianoPrefixEndDataProcessor(DataProcessor):
                    self.num_events_local_window, :] = True
 
         # decoding_start and decoding_end
-        decoding_start = self.num_events_end + 1
+        decoding_start = self.num_events_end + self.num_events_local_window + 1
         # valid_suffix_len = torch.where(suffix_tensor[:, :, 0] == self.end_tokens[0])[0][0] + 1
         # decoding_end = (self.num_events_end + 1 + valid_suffix_len)
 
         # self.num_events_before + self.num_events_after + 1 is the location
         # of the SOD symbol (only the placeholder is added)
         metadata_dict = {
-            'placeholder_duration': None,
+            'placeholder_duration': placeholder_duration,
             'decoding_start': decoding_start,
-            # 'decoding_end': decoding_end,
+            'decoding_end': None,
             'original_sequence': y,
             'loss_mask': final_mask
         }
@@ -245,8 +247,7 @@ class PianoPrefixEndDataProcessor(DataProcessor):
 
         # offset prefix
         elapsed_time[:, :self.num_events_end] = elapsed_time[:, :self.num_events_end] \
-            + elapsed_time[:, -1:] \
-            - elapsed_time[:, self.num_events_end+1:self.num_events_end+2]
+            + metadata_dict['placeholder_duration'].unsqueeze(1)
         elapsed_time[:, self.num_events_end:] = elapsed_time[:, self.num_events_end:] \
             - elapsed_time[:, self.num_events_end+1:self.num_events_end+2]
 
@@ -255,12 +256,44 @@ class PianoPrefixEndDataProcessor(DataProcessor):
         return elapsed_time
 
     def postprocess(self, x, decoding_end, metadata_dict):
-        # decoding_start = metadata_dict['decoding_start']
-        decoding_start = torch.where(x[:, :, 0] == self.start_tokens[0])[0]
-        decoding_end = torch.where(x[:, :, 0] == self.end_tokens[0])[
-            0]  # not +1 because we don't want the END symbol
-        after = x[:, :self.num_events_end]
-        before = x[:, decoding_start:decoding_end]
+        before = x[:, self.num_events_end+1:].to(self.end_tokens.device)
+
+        # trim end
+        num_events = before.shape[1]
+        is_end_token = (
+            before[:, :,
+              0] == self.end_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
+                  1, num_events))
+        contains_end_token = (is_end_token.sum(1) == 1)
+        if contains_end_token:
+            end_token_location = torch.argmax(is_end_token.long(), dim=1)
+        else:
+            raise Exception('no or more than 1 END token generated in suffix')
+        before = before[:end_token_location]
+
+        # trim start
+        num_events = before.shape[1]
+        is_start_token = (
+            before[:, :,
+              0] == self.start_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
+                  1, num_events))
+        contains_start_token = (is_start_token.sum(1) == 1)
+        if contains_start_token:
+            start_token_location = torch.argmax(is_start_token.long(), dim=1)
+            before = before[start_token_location+1:]
+
+        after = x[:, :self.num_events_end].to(self.end_tokens.device)
+        # trim end
+        num_events = after.shape[1]
+        is_end_token = (
+            after[:, :,
+              0] == self.end_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
+                  1, num_events))
+        contains_end_token = (is_end_token.sum(1) == 1)
+        if contains_end_token:
+            end_token_location = torch.argmax(is_end_token.long(), dim=1)
+            after = after[:end_token_location]
+
         # put all pieces in order:
         x_out = torch.cat([before, after], dim=1)
         return x_out
