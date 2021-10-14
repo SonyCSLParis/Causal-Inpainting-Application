@@ -92,7 +92,8 @@ def get_data_processor(dataloader_generator, data_processor_type,
             num_events_local_window=data_processor_kwargs[
                 'num_events_local_window'],
             num_events_end=data_processor_kwargs['num_events_end'],
-            num_tokens_per_channel=num_tokens_per_channel)
+            num_tokens_per_channel=num_tokens_per_channel,
+            reverse_prefix=data_processor_kwargs['reverse_prefix'])
     else:
         raise NotImplementedError
 

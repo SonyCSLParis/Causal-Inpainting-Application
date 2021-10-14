@@ -10,7 +10,7 @@ from CIA.utils import cuda_variable
 class PianoPrefixEndDataProcessor(DataProcessor):
     def __init__(self, dataloader_generator, embedding_size, num_events,
                  num_tokens_per_channel, num_events_local_window,
-                 num_events_end):
+                 num_events_end, reverse_prefix):
         super(PianoPrefixEndDataProcessor,
               self).__init__(embedding_size=embedding_size,
                              num_events=num_events,
@@ -43,6 +43,37 @@ class PianoPrefixEndDataProcessor(DataProcessor):
             [START_SYMBOL] for feature in self.dataloader_generator.features
         ]),
                                          requires_grad=False)
+
+        self.reverse_prefix = reverse_prefix
+
+    def reverse(self, x):
+        """ Reverse midi sequence
+        """
+        # Do more simple: reverse sequence, then shift TS
+        # rev_x = x
+        # index2ts = self.dataloader_generator.dataset.index2value['time_shift']
+        # ts2index = self.dataloader_generator.dataset.value2index['time_shift']
+        # ts_channel = self.dataloader_generator.features.index('time_shift')
+        # index2d = self.dataloader_generator.dataset.index2value['duration']
+        # d_channel = self.dataloader_generator.features.index('duration')
+        # for time in range(x.shape[0]):
+        #     dt = index2d[int(x[time, d_channel])]
+        #     dtm1 = index2d[int(x[time-1, d_channel])] if time != 0 else 0
+        #     tstm1 = index2ts[int(x[time-1, ts_channel])] if time != 0 else 0
+        #     tst = tstm1 + dt - dtm1
+        #     tst_index = ts2index[tst]
+        #     rev_x[time, ts_channel] = tst_index
+        rev_x = torch.flip(x, [0])
+        ts_channel = self.dataloader_generator.features.index('time_shift')
+        rev_x[:-1, ts_channel] = rev_x[1:, ts_channel]
+        rev_x[-1, ts_channel] = 0
+        return rev_x
+
+    def dereverse(self, rev_x):
+        ts_channel = self.dataloader_generator.features.index('time_shift')
+        rev_x[1:, ts_channel] = rev_x[:-1, ts_channel]
+        x = torch.flip(rev_x, [0])
+        return x
 
     def preprocess(self, x, num_events_inpainted):
         """[summary]
@@ -121,18 +152,31 @@ class PianoPrefixEndDataProcessor(DataProcessor):
                         (end_token_l < self.num_events_local_window)
                         ), "End token located in local_window"
 
+            ########################################################################
             # Construction du prefix
             if c_end_token and (end_token_l < num_events_suffix):
                 # END is in before
-                prefix = torch.cat([
-                    self.end_tokens.unsqueeze(0),
-                    self.pad_tokens.unsqueeze(0).repeat(a.size(0) - 1, 1)
-                ],
-                                   dim=0)
-            else:
-                prefix = a
+                if self.reverse_prefix:
+                    prefix = torch.cat([
+                        self.pad_tokens.unsqueeze(0).repeat(a.size(0) - 1, 1),
+                        self.end_tokens.unsqueeze(0)
+                    ],
+                                    dim=0)
+                else:
+                    prefix = torch.cat([
+                        self.end_tokens.unsqueeze(0),
+                        self.pad_tokens.unsqueeze(0).repeat(a.size(0) - 1, 1)
+                    ],
+                                    dim=0)
 
+            else:
+                if self.reverse_prefix:
+                    prefix = self.reverse(a)
+                else:
+                    prefix = a
             ########################################################################
+
+            ################################
             # Safeguards, can be removed after a while
             if torch.any(prefix[:, 0] == self.start_tokens[0]):
                 # START in after
@@ -147,10 +191,15 @@ class PianoPrefixEndDataProcessor(DataProcessor):
                 end_location = torch.where(
                     prefix[:, 0] == self.end_tokens[0].unsqueeze(0))[0]
                 assert (end_location.shape[0] == 1), 'several END in suffix'
-                assert torch.all(
-                    pads_locations > end_location), 'PADS before ENDS in after'
-            ########################################################################
+                if self.reverse_prefix:
+                    assert torch.all(
+                        pads_locations < end_location), 'PADS before ENDS in after in reversed prefix'
+                else:
+                    assert torch.all(
+                        pads_locations > end_location), 'PADS before ENDS in after'
+            ################################
 
+            ########################################################################
             # Construction du suffix
             if c_start_token and (start_token_l >=
                                   self.num_events_local_window):
@@ -165,8 +214,9 @@ class PianoPrefixEndDataProcessor(DataProcessor):
                 suffix = b[:end_token_l]
             else:
                 suffix = b
-
             ########################################################################
+
+            ################################
             # Safeguards, can be removed after running the code for a while with no exception
             if torch.any(suffix[:, 0] == self.start_tokens[0]):
                 # check START position
@@ -179,7 +229,7 @@ class PianoPrefixEndDataProcessor(DataProcessor):
             # No END in suffix (yet)
             is_end_token = torch.any(suffix[:, 0] == self.end_tokens[0])
             assert not is_end_token, 'end token in suffix before end token is added'
-            ########################################################################
+            ################################
 
             # Now append end and pads
             num_events_pad_end = sequences_size - (
@@ -283,6 +333,8 @@ class PianoPrefixEndDataProcessor(DataProcessor):
             before = before[start_token_location+1:]
 
         after = x[:, :self.num_events_end].to(self.end_tokens.device)
+        if self.reverse_prefix:
+            after = self.dereverse(after)
         # trim end
         num_events = after.shape[1]
         is_end_token = (

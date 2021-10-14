@@ -21,7 +21,8 @@ config = {
     'data_processor_kwargs':       dict(
         embedding_size=64,
         num_events_local_window=local_window_size,
-        num_events_end=256
+        num_events_end=256,
+        reverse_prefix=True
     ),  # Can be different from the encoder's data processor
 
     # --- Positional Embedding ---
