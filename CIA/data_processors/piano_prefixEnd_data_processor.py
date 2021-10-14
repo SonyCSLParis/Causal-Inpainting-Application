@@ -71,8 +71,8 @@ class PianoPrefixEndDataProcessor(DataProcessor):
 
     def dereverse(self, rev_x):
         ts_channel = self.dataloader_generator.features.index('time_shift')
-        rev_x[1:, ts_channel] = rev_x[:-1, ts_channel]
-        x = torch.flip(rev_x, [0])
+        rev_x[:, 1:, ts_channel] = rev_x[:, :-1, ts_channel]
+        x = torch.flip(rev_x, [1])
         return x
 
     def preprocess(self, x, num_events_inpainted):
@@ -107,7 +107,8 @@ class PianoPrefixEndDataProcessor(DataProcessor):
         max_num_events_suffix = sequences_size - (self.num_events_end +
                                                   num_meta_events) - 1
         if num_events_suffix is None:
-            num_events_suffix = random.randint(self.num_events_local_window+1, max_num_events_suffix)
+            num_events_suffix = random.randint(
+                self.num_events_local_window + 1, max_num_events_suffix)
         else:
             assert (num_events_suffix > self.num_events_local_window
                     ), 'wrong number of events to be inpainted'
@@ -131,10 +132,10 @@ class PianoPrefixEndDataProcessor(DataProcessor):
         start_token_location = torch.argmax(is_start_token.long(), dim=1)
         end_token_location = torch.argmax(is_end_token.long(), dim=1)
 
-
         before = x[:, :num_events_suffix]
         after = x[:, num_events_suffix:num_events_suffix + self.num_events_end]
-        placeholder_duration = self.dataloader_generator.get_elapsed_time(before)[:, -1]
+        placeholder_duration = self.dataloader_generator.get_elapsed_time(
+            before)[:, -1]
 
         prefix_list, suffix_list = [], []
         # TODO batch this?!
@@ -161,13 +162,13 @@ class PianoPrefixEndDataProcessor(DataProcessor):
                         self.pad_tokens.unsqueeze(0).repeat(a.size(0) - 1, 1),
                         self.end_tokens.unsqueeze(0)
                     ],
-                                    dim=0)
+                                       dim=0)
                 else:
                     prefix = torch.cat([
                         self.end_tokens.unsqueeze(0),
                         self.pad_tokens.unsqueeze(0).repeat(a.size(0) - 1, 1)
                     ],
-                                    dim=0)
+                                       dim=0)
 
             else:
                 if self.reverse_prefix:
@@ -193,10 +194,11 @@ class PianoPrefixEndDataProcessor(DataProcessor):
                 assert (end_location.shape[0] == 1), 'several END in suffix'
                 if self.reverse_prefix:
                     assert torch.all(
-                        pads_locations < end_location), 'PADS before ENDS in after in reversed prefix'
+                        pads_locations < end_location
+                    ), 'PADS before ENDS in after in reversed prefix'
                 else:
-                    assert torch.all(
-                        pads_locations > end_location), 'PADS before ENDS in after'
+                    assert torch.all(pads_locations > end_location
+                                     ), 'PADS before ENDS in after'
             ################################
 
             ########################################################################
@@ -298,22 +300,29 @@ class PianoPrefixEndDataProcessor(DataProcessor):
         # offset prefix
         elapsed_time[:, :self.num_events_end] = elapsed_time[:, :self.num_events_end] \
             + metadata_dict['placeholder_duration'].unsqueeze(1)
+        # reversed?
+        if self.reverse_prefix:
+            elapsed_time[:, :self.num_events_end] = \
+                elapsed_time[:, self.num_events_end-1].unsqueeze(1) - elapsed_time[:, :self.num_events_end]
+
+        # offset suffix
         elapsed_time[:, self.num_events_end:] = elapsed_time[:, self.num_events_end:] \
             - elapsed_time[:, self.num_events_end+1:self.num_events_end+2]
 
-        assert not torch.any(elapsed_time < 0), 'Negative elapsed time'
+        # assert not negative elapsed time
+        assert torch.all(elapsed_time >= -9e-3), 'Negative elapsed time'
 
         return elapsed_time
 
     def postprocess(self, x, decoding_end, metadata_dict):
-        before = x[:, self.num_events_end+1:].to(self.end_tokens.device)
+        before = x[:, self.num_events_end + 1:].to(self.end_tokens.device)
 
         # trim end
         num_events = before.shape[1]
         is_end_token = (
             before[:, :,
-              0] == self.end_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
-                  1, num_events))
+                   0] == self.end_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
+                       1, num_events))
         contains_end_token = (is_end_token.sum(1) == 1)
         if contains_end_token:
             end_token_location = torch.argmax(is_end_token.long(), dim=1)
@@ -325,12 +334,12 @@ class PianoPrefixEndDataProcessor(DataProcessor):
         num_events = before.shape[1]
         is_start_token = (
             before[:, :,
-              0] == self.start_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
-                  1, num_events))
+                   0] == self.start_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
+                       1, num_events))
         contains_start_token = (is_start_token.sum(1) == 1)
         if contains_start_token:
             start_token_location = torch.argmax(is_start_token.long(), dim=1)
-            before = before[start_token_location+1:]
+            before = before[start_token_location + 1:]
 
         after = x[:, :self.num_events_end].to(self.end_tokens.device)
         if self.reverse_prefix:
@@ -339,12 +348,12 @@ class PianoPrefixEndDataProcessor(DataProcessor):
         num_events = after.shape[1]
         is_end_token = (
             after[:, :,
-              0] == self.end_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
-                  1, num_events))
+                  0] == self.end_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
+                      1, num_events))
         contains_end_token = (is_end_token.sum(1) == 1)
         if contains_end_token:
             end_token_location = torch.argmax(is_end_token.long(), dim=1)
-            after = after[:end_token_location]
+            after = after[:, :end_token_location]
 
         # put all pieces in order:
         x_out = torch.cat([before, after], dim=1)
