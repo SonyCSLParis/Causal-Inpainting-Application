@@ -93,7 +93,8 @@ class DecoderEventsHandler(Handler):
                               temperature=1.,
                               top_p=1.,
                               top_k=0,
-                              num_max_generated_events=None
+                              num_max_generated_events=None,
+                              regenerate_first_ts=False
                               ):
         # TODO add arguments to preprocess
         print(f'Placeholder duration: {metadata_dict["placeholder_duration"]}')
@@ -105,11 +106,20 @@ class DecoderEventsHandler(Handler):
 
         decoding_end = None
         decoding_start_event = metadata_dict['decoding_start']
-        x[:, decoding_start_event:] = 0
+        
+        # just to be sure we erase the tokens to be generated
+        if not regenerate_first_ts:
+            x[:, decoding_start_event:] = 0
+        else:
+            # Warning, special case when we need to keep the first note!
+            x[:, decoding_start_event + 1:] = 0
+            x[:, decoding_start_event, -1] = 0
+        
         
         if num_max_generated_events is not None:
             num_events = min(decoding_start_event + num_max_generated_events,
                              num_events)
+            
         with torch.no_grad():
             # event_index corresponds to the position of the token BEING generated
             for event_index in range(decoding_start_event, num_events):
@@ -126,6 +136,12 @@ class DecoderEventsHandler(Handler):
                 output = output[:, event_index]
 
                 for channel_index in range(self.num_channels_target):
+                    # skip updates if we need to only recompute the FIRST TIMESHIFT
+                    if (event_index == decoding_start_event
+                        and regenerate_first_ts
+                        and channel_index < 3):
+                        continue
+                    
                     # target_embedded must be recomputed!
                     # TODO could be optimized
                     target_embedded = self.data_processor.embed(x)[:,
@@ -133,9 +149,11 @@ class DecoderEventsHandler(Handler):
                     weights = self.event_state_to_weight_step(
                         output, target_embedded, channel_index)
                     logits = weights / temperature
-
+                    
+                    # Filter logits
                     filtered_logits = []
                     for logit in logits:
+                                                
                         filter_logit = top_k_top_p_filtering(logit,
                                                              top_k=top_k,
                                                              top_p=top_p)
