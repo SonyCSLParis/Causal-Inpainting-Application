@@ -1,3 +1,4 @@
+from performer_pytorch.performer_pytorch import SelfAttention
 from CIA.model.causal_events_model_full_cat import GEGLU, GeneralSWIGLU
 import torch.nn as nn
 import torch.nn.functional as F
@@ -73,7 +74,10 @@ class Process(nn.Module):
         # self.norm = lambda x: x
         # self.norm2 = lambda x: x
 
-        self.mlp = SWIGLU(dim, dropout)
+        # self.mlp = SWIGLU(dim, dropout) ? Was this used?
+        self.mlp = GEGLU(dim, hidden_dim=hidden_dim,
+                         output_dim=dim,
+                         dropout=dropout)
 
         self.rezero_1 = nn.Parameter(torch.zeros(1))
         self.rezero_2 = nn.Parameter(torch.zeros(1))
@@ -116,15 +120,16 @@ class Remixer(nn.Module):
         x_prime = self.w2(x)
 
         H = torch.softmax(self.H + self.causal_mask, dim=-1)
-        
+
         x_s_l = torch.einsum('bnd,mn->bmd', x_prime, H)
         alpha = torch.sigmoid(self.alpha)
-        
+
         x_c_l = alpha * x_s_l * x_prime + (1 - alpha) * (x_prime - x_s_l)
-        
+
         y = x_prime + self.w3(x_c_l)
         return y
-    
+
+
 class ProcessRemixer(nn.Module):
     def __init__(self, dim, num_heads, hidden_dim, length, dropout):
         super().__init__()
@@ -156,6 +161,7 @@ class ProcessRemixer(nn.Module):
         out = l + out
         return out
 
+
 class ProcessGW(nn.Module):
     def __init__(self, dim, num_heads, hidden_dim, length, dropout):
         super().__init__()
@@ -186,6 +192,7 @@ class ProcessGW(nn.Module):
             out = self.rezero_2 * out
         out = l + out
         return out
+
 
 class CrossAttentionDecoder(nn.Module):
     def __init__(self, dim, num_heads, downscaling, hidden_dim, dropout):
@@ -317,9 +324,9 @@ class DecodeConcat(nn.Module):
 #                            dropout=dropout)
 #             for _ in range(num_layers)
 #         ])
-        
+
 #         self.process_query = nn.Sequential(*[
-#             ProcessRemixer(dim, num_heads=8, 
+#             ProcessRemixer(dim, num_heads=8,
 #                            hidden_dim=512,
 #                            length=self.downscaling,
 #                            dropout=dropout)
@@ -349,22 +356,22 @@ class DecodeConcat(nn.Module):
 #         # offset on l
 #         l = torch.cat([self.dummy_latent.repeat(batch_size, 1, 1), l],
 #                       dim=1)[:, :-1]
-        
-#         l = self.process(l)
 
+#         l = self.process(l)
 
 #         x = x.reshape(batch_size * num_tokens // self.downscaling,
 #                       self.downscaling, feature_dim)
 #         x = self.process_query(x)
 #         l = l.repeat_interleave(num_tokens // self.downscaling, dim=0)
-        
+
 #         y = self.decode(x, l)
-        
+
 #         y = y.reshape(batch_size, num_tokens, latent_dim)
 
 #         if self.last_layer_norm is not None:
 #             y = self.last_layer_norm(y)
 #         return dict(x=y)
+
 
 class QKV_Write(nn.Module):
     def __init__(self, dim, num_heads, downscaling, hidden_dim, dropout):
@@ -382,10 +389,10 @@ class QKV_Write(nn.Module):
 
         self.num_heads = num_heads
         self.dropout = nn.Dropout(dropout)
-        
-        # self.norm = nn.LayerNorm(dim)
+
+        self.norm = nn.LayerNorm(dim)
         # self.norm = nn.InstanceNorm1d(dim, track_running_stats=True)
-        self.norm = nn.InstanceNorm1d(1024, track_running_stats=True)
+        # self.norm = nn.InstanceNorm1d(1024, track_running_stats=True)
     def forward(self, x, l):
         """[summary]
 
@@ -409,27 +416,27 @@ class QKV_Write(nn.Module):
         causal_mask = torch.triu(-float('inf') *
                                  torch.ones(num_latents, num_latents),
                                  diagonal=1).to(qk.device)
-        
+
         causal_mask = causal_mask.repeat_interleave(self.downscaling, dim=1)
         qk_masked = causal_mask[None, None, :, :] + qk
 
         attn = qk_masked.softmax(dim=-1)
-        
+
         out = torch.einsum('bhij,bhjd->bhid', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)')
-        
+
         if self.norm is not None:
             if isinstance(self.norm, torch.nn.InstanceNorm1d):
                 # out = out.transpose(1, 2)
                 out = self.norm(out)
-                # out = out.transpose(1, 2)            
+                # out = out.transpose(1, 2)
             else:
                 out = self.norm(out)
-        
-            
+
         out = self.to_out(out)
         return self.dropout(out)
-    
+
+
 class QKV_Read(nn.Module):
     def __init__(self, dim, num_heads, downscaling, hidden_dim, dropout):
         super().__init__()
@@ -467,104 +474,204 @@ class QKV_Read(nn.Module):
             (q, k, v))
 
         qk = torch.einsum('bhid,bhjd->bhij', q, k) * (dim**-0.5)
+
+        # l must be shifted if we did downscale!!
         causal_mask = torch.triu(-float('inf') *
                                  torch.ones(num_latents, num_latents),
                                  diagonal=1).to(qk.device)
-        
+
         causal_mask = causal_mask.repeat_interleave(self.downscaling, dim=0)
         qk_masked = causal_mask[None, None, :, :] + qk
 
         attn = qk_masked.softmax(dim=-1)
-        
+
         out = torch.einsum('bhij,bhjd->bhid', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)')
         out = self.to_out(out)
         return self.dropout(out)
-    
-    
+
+
 # Not a PerceiverIO, just Globalworkspace
-class PerceiverIO(nn.Module):
-    def __init__(self, dim, num_layers, dropout, **kwargs):
-        super().__init__()
-        self.dim_last_layer = dim
-        self.downscaling = 1
-        
-        # which init?
-        self.l_init = torch.zeros(1024, 512)
-        position = torch.arange(0, 1024, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, 512, 2).float() * (
-            -math.log(10000.0) / 512))
-        self.l_init[:, 0::2] = torch.sin(position * div_term)
-        self.l_init[:, 1::2] = torch.cos(position * div_term)
-        self.l_init = nn.Parameter(self.l_init.unsqueeze(0), requires_grad=False)
+# Gros rouge 17:22:49 6 couches
+# class PerceiverIO(nn.Module):
+#     def __init__(self, dim, num_layers, dropout, **kwargs):
+#         super().__init__()
+#         self.dim_last_layer = dim
+#         self.downscaling = 1
 
-        # self.l_init = nn.Parameter(torch.randn(1, 1024, 512))
-        
-        self.write = nn.ModuleList([            
-            QKV_Write(dim, num_heads=8, downscaling=self.downscaling,
-                      hidden_dim=dim, dropout=dropout)
-            for _ in range(num_layers)
-        ])
-        self.read = nn.ModuleList([            
-            QKV_Read(dim, num_heads=8, downscaling=self.downscaling,
-                      hidden_dim=dim, dropout=dropout)
-            for _ in range(num_layers)
-        ])
-        
-        self.ffn = nn.ModuleList([            
-            GEGLU(dim, hidden_dim=2 * dim,
-                  output_dim=dim,
-                  dropout=dropout)
-            for _ in range(num_layers)
-        ])
-        
-        self.norm1 = nn.ModuleList([            
-            nn.LayerNorm(dim)
-            for _ in range(num_layers)
-        ])
-        # self.norm2 = nn.ModuleList([            
-        #     nn.LayerNorm(dim)
-        #     for _ in range(num_layers)
-        # ])
-        self.norm2 = [            
-            None
-            for _ in range(num_layers)
-        ]
-        self.norm3 = nn.ModuleList([            
-            nn.LayerNorm(dim)
-            for _ in range(num_layers)
-        ])
+#         # which init?
+#         self.l_init = torch.zeros(1024, 512)
+#         position = torch.arange(0, 1024, dtype=torch.float).unsqueeze(1)
+#         div_term = torch.exp(torch.arange(0, 512, 2).float() * (
+#             -math.log(10000.0) / 512))
+#         self.l_init[:, 0::2] = torch.sin(position * div_term)
+#         self.l_init[:, 1::2] = torch.cos(position * div_term)
+#         self.l_init = nn.Parameter(self.l_init.unsqueeze(0), requires_grad=False)
 
-        # self.last_layer_norm = nn.LayerNorm(dim)
-        self.last_layer_norm = None
+#         # self.l_init = nn.Parameter(torch.randn(1, 1024, 512))
 
-    def forward(self, x, **kwargs):
-        batch_size, num_tokens, feature_dim = x.size()
+#         self.write = nn.ModuleList([
+#             QKV_Write(dim, num_heads=8, downscaling=self.downscaling,
+#                       hidden_dim=dim, dropout=dropout)
+#             for _ in range(num_layers)
+#         ])
+#         self.read = nn.ModuleList([
+#             QKV_Read(dim, num_heads=8, downscaling=self.downscaling,
+#                       hidden_dim=dim, dropout=dropout)
+#             for _ in range(num_layers)
+#         ])
 
-        # intialise the memory
-        _, num_latents, latent_dim = self.l_init.size()
-        l = self.l_init.expand(batch_size, num_latents, latent_dim)
-        
-        for write, read, process, norm1, norm2, norm3 in zip(self.write,
-                                        self.read,
-                                        self.ffn,
-                                        self.norm1,
-                                        self.norm2,
-                                        self.norm3
-                                        ):
-            # residual connections?
-            x_norm = norm1(x)
-            # l_norm = norm2(l)
+#         self.ffn = nn.ModuleList([
+#             GEGLU(dim, hidden_dim=2 * dim,
+#                   output_dim=dim,
+#                   dropout=dropout)
+#             for _ in range(num_layers)
+#         ])
+
+#         self.norm1 = nn.ModuleList([
+#             nn.LayerNorm(dim)
+#             for _ in range(num_layers)
+#         ])
+#         self.norm2 = nn.ModuleList([
+#             nn.LayerNorm(dim)
+#             for _ in range(num_layers)
+#         ])
+#         # self.norm2 = [
+#         #     None
+#         #     for _ in range(num_layers)
+#         # ]
+#         self.norm3 = nn.ModuleList([
+#             nn.LayerNorm(dim)
+#             for _ in range(num_layers)
+#         ])
+
+#         # self.last_layer_norm = nn.LayerNorm(dim)
+#         self.last_layer_norm = None
+
+#     def forward(self, x, **kwargs):
+#         batch_size, num_tokens, feature_dim = x.size()
+
+#         # intialise the memory
+#         _, num_latents, latent_dim = self.l_init.size()
+#         l = self.l_init.expand(batch_size, num_latents, latent_dim)
+
+#         for write, read, process, norm1, norm2, norm3 in zip(self.write,
+#                                         self.read,
+#                                         self.ffn,
+#                                         self.norm1,
+#                                         self.norm2,
+#                                         self.norm3
+#                                         ):
+#             # residual connections?
+#             x_norm = norm1(x)
+#             # l_norm = norm2(l)
+
+#             # always start with new memories
+#             l_norm = self.l_init.expand(batch_size, num_latents, latent_dim)
+#             l = l + write(x_norm, l_norm)
+#             x = x + read(x_norm, l)
+#             x = x + process(norm3(x))
+
+#         if self.last_layer_norm is not None:
+#             x = self.last_layer_norm(x)
+#         return dict(x=x)
+
+
+# piano_event_performer_2021-09-30_17:52:57
+# nouveau petit bleu 16 couches!
+
+# class PerceiverIO(nn.Module):
+#     def __init__(self, dim, num_layers, dropout, **kwargs):
+#         super().__init__()
+#         self.dim_last_layer = dim
+#         self.downscaling = 16
+
+#         # which init?
+#         self.l_init = torch.zeros(1024 // self.downscaling, 512)
+#         position = torch.arange(0, 1024 // self.downscaling,
+#                                 dtype=torch.float).unsqueeze(1)
+#         div_term = torch.exp(
+#             torch.arange(0, 512, 2).float() * (-math.log(10000.0) / 512))
+#         self.l_init[:, 0::2] = torch.sin(position * div_term)
+#         self.l_init[:, 1::2] = torch.cos(position * div_term)
+#         self.l_init = nn.Parameter(self.l_init.unsqueeze(0),
+#                                    requires_grad=False)
+
+#         self.dummy_l = nn.ParameterList([nn.Parameter(torch.randn(1, 1, 512))
+#                                      for _ in range(num_layers)])
+
+#         # self.l_init = nn.Parameter(torch.randn(1, 1024, 512))
+
+#         self.write = nn.ModuleList([
+#             QKV_Write(dim,
+#                       num_heads=8,
+#                       downscaling=self.downscaling,
+#                       hidden_dim=dim,
+#                       dropout=dropout) for _ in range(num_layers)
+#         ])
+#         self.read = nn.ModuleList([
+#             QKV_Read(dim,
+#                      num_heads=8,
+#                      downscaling=self.downscaling,
+#                      hidden_dim=dim,
+#                      dropout=dropout) for _ in range(num_layers)
+#         ])
+
+#         self.ffn = nn.ModuleList([
+#             GEGLU(dim, hidden_dim=2 * dim, output_dim=dim, dropout=dropout)
+#             for _ in range(num_layers)
+#         ])
+
+#         self.self_local_attention = nn.ModuleList([
+#             SelfAttention(dim=dim,
+#                           local_heads=8,
+#                           heads=8,
+#                           causal=True,
+#                           local_window_size=64,
+#                           dropout=dropout) for _ in range(num_layers)
+#         ])
+
+#         self.norm1 = nn.ModuleList(
+#             [nn.LayerNorm(dim) for _ in range(num_layers)])
+#         self.norm2 = nn.ModuleList(
+#             [nn.LayerNorm(dim) for _ in range(num_layers)])
+
+#         self.norm3 = nn.ModuleList(
+#             [nn.LayerNorm(dim) for _ in range(num_layers)])
+
+#         self.last_layer_norm = nn.LayerNorm(dim)
+
+#     def forward(self, x, **kwargs):
+#         batch_size, num_tokens, feature_dim = x.size()
+
+#         # intialise the memory
+#         _, num_latents, latent_dim = self.l_init.size()
+#         l = self.l_init.expand(batch_size, num_latents, latent_dim)
+
+#         for write, read, process, atn, norm1, norm2, norm3, dummy_l in zip(
+#                 self.write, self.read, self.ffn, self.self_local_attention,
+#                 self.norm1, self.norm2, self.norm3, self.dummy_l):
+#             # residual connections?
+#             # l_norm = norm2(l)
+
+#             x = x + atn(norm1(x))
+
+#             # always start with new memories
+#             l_norm = self.l_init.expand(batch_size, num_latents, latent_dim)
+#             x_norm = norm2(x)
+#             l = l + write(x_norm, l_norm)
             
-            # always start with new memories
-            l_norm = self.l_init.expand(batch_size, num_latents, latent_dim)
-            l = l + write(x_norm, l_norm)
-            x = x + read(x_norm, l)
-            x = x + process(norm3(x))
+#             # we must shift by one
+#             dummy_l = dummy_l.repeat(batch_size, 1, 1)
+#             l = torch.cat([dummy_l, l[:, :-1]], dim=1)
+#             x = x + read(x_norm, l)
 
-        if self.last_layer_norm is not None:
-            x = self.last_layer_norm(x)
-        return dict(x=x)
+#             x = x + process(norm3(x))
+
+#         if self.last_layer_norm is not None:
+#             x = self.last_layer_norm(x)
+#         return dict(x=x)
+
 
 # Tried with concatenating l_i, encoder-decoder on all ls
 
@@ -622,7 +729,170 @@ class PerceiverIO(nn.Module):
 #             y = self.last_layer_norm(y)
 #         return dict(x=y)
 
+# Try with processings
+# 14 couches piano_event_performer_2021-10-01_16:03:06
+class PerceiverIO(nn.Module):
+    def __init__(self, dim, num_layers, dropout, **kwargs):
+        super().__init__()
+        self.dim_last_layer = dim
+        self.downscaling = 16
 
+        # which init?
+        self.l_init = torch.zeros(1024 // self.downscaling, 512)
+        position = torch.arange(0, 1024 // self.downscaling,
+                                dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, 512, 2).float() * (-math.log(10000.0) / 512))
+        self.l_init[:, 0::2] = torch.sin(position * div_term)
+        self.l_init[:, 1::2] = torch.cos(position * div_term)
+        self.l_init = nn.Parameter(self.l_init.unsqueeze(0),
+                                   requires_grad=False)
+
+        self.dummy_l = nn.ParameterList([nn.Parameter(torch.randn(1, 1, 512))
+                                     for _ in range(num_layers)])
+
+        # self.l_init = nn.Parameter(torch.randn(1, 1024, 512))
+
+        self.write = nn.ModuleList([
+            QKV_Write(dim,
+                      num_heads=8,
+                      downscaling=self.downscaling,
+                      hidden_dim=dim,
+                      dropout=dropout) for _ in range(num_layers)
+        ])
+        self.read = nn.ModuleList([
+            QKV_Read(dim,
+                     num_heads=8,
+                     downscaling=self.downscaling,
+                     hidden_dim=dim,
+                     dropout=dropout) for _ in range(num_layers)
+        ])
+
+        self.ffn = nn.ModuleList([
+            GEGLU(dim, hidden_dim=2 * dim, output_dim=dim, dropout=dropout)
+            for _ in range(num_layers)
+        ])
+
+        self.self_local_attention = nn.ModuleList([
+            SelfAttention(dim=dim,
+                          local_heads=8,
+                          heads=8,
+                          causal=True,
+                          local_window_size=64,
+                          dropout=dropout) for _ in range(num_layers)
+        ])
+        
+        # process contains both ff and self attention
+        self.process_l = nn.ModuleList([
+            Process(dim=dim,          
+                    hidden_dim=dim * 2,         
+                          num_heads=8,
+                          dropout=dropout) for _ in range(num_layers)
+        ])
+
+        self.norm1 = nn.ModuleList(
+            [nn.LayerNorm(dim) for _ in range(num_layers)])
+        self.norm2 = nn.ModuleList(
+            [nn.LayerNorm(dim) for _ in range(num_layers)])
+
+        self.norm3 = nn.ModuleList(
+            [nn.LayerNorm(dim) for _ in range(num_layers)])
+        self.norm_l = nn.ModuleList(
+            [nn.LayerNorm(dim) for _ in range(num_layers)])
+
+        self.last_layer_norm = nn.LayerNorm(dim)
+
+    def forward(self, x, **kwargs):
+        batch_size, num_tokens, feature_dim = x.size()
+
+        # intialise the memory
+        _, num_latents, latent_dim = self.l_init.size()
+        l = self.l_init.expand(batch_size, num_latents, latent_dim)
+
+        for write, read, ff, atn, process, norm1, norm2, norm3, norm_l, dummy_l in zip(
+                self.write, self.read, self.ffn, self.self_local_attention,
+                self.process_l,
+                self.norm1, self.norm2, self.norm3, self.norm_l, self.dummy_l):
+            
+            x_norm = norm1(x)
+            
+            l_norm = norm_l(l)
+            # l is replaced (no residual)
+            # l = l + write(x_norm, l_norm)
+            l = write(x_norm, l_norm)
+            
+            # l is processed, x is processed
+            l = process(l)            
+            x = x + atn(x_norm)
+            x = x + ff(norm2(x))
+            
+            # we must shift by one before the read operation
+            dummy_l = dummy_l.repeat(batch_size, 1, 1)
+            read_l = torch.cat([dummy_l, l[:, :-1]], dim=1)
+            x = x + read(norm3(x), read_l)
+
+        if self.last_layer_norm is not None:
+            x = self.last_layer_norm(x)
+        return dict(x=x)
+
+
+
+# class PerceiverIO(nn.Module):
+#     def __init__(self, dim, num_layers, dropout, **kwargs):
+#         super().__init__()
+#         self.dim_last_layer = dim
+#         self.downscaling = 16
+
+#         self.l_init = nn.Parameter(torch.randn(1, 64, 512))
+#         self.encode = Encode(dim=512,
+#                              num_heads=8,
+#                              downscaling=self.downscaling,
+#                              hidden_dim=512,
+#                              dropout=dropout)
+#         self.process = nn.Sequential(*[
+#             Process(dim, num_heads=8, hidden_dim=512, dropout=dropout)
+#             for _ in range(num_layers)
+#         ])
+
+#         # Small encoder-decoder transformer
+#         self.decode = nn.Sequential(*[
+#             Process(dim, num_heads=8, hidden_dim=512, dropout=dropout)
+#             for _ in range(8)
+#         ])
+
+#         self.dummy_latent = nn.Parameter(torch.randn(1, 1, 512))
+
+#         self.last_layer_norm = nn.LayerNorm(dim)
+
+#     def forward(self, x, **kwargs):
+#         batch_size, num_tokens, feature_dim = x.size()
+#         _, num_latents, latent_dim = self.l_init.size()
+
+#         # intialise the tower of latents
+#         l = self.l_init.expand(batch_size, num_latents, latent_dim)
+#         l = self.encode(x, l)
+
+#         l = self.process(l)
+
+#         # offset on l
+#         l = torch.cat([self.dummy_latent.repeat(batch_size, 1, 1), l],
+#                       dim=1)[:, :-1]
+
+#         l = l.reshape(batch_size * num_latents, 1, feature_dim)
+#         x = x.reshape(batch_size * num_tokens // self.downscaling,
+#                       self.downscaling, feature_dim)
+
+#         y = torch.cat([l, x], dim=1)
+#         y = self.decode(y)
+#         y = y[:, :-1]
+#         y = y.reshape(batch_size, num_tokens, latent_dim)
+
+#         if self.last_layer_norm is not None:
+#             y = self.last_layer_norm(y)
+#         return dict(x=y)
+
+
+# Tried with concatenating l_i, encoder-decoder on all ls
 class Decode(nn.Module):
     def __init__(self, dim, num_heads, hidden_dim, downscaling, dropout):
         super().__init__()

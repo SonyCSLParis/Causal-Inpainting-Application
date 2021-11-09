@@ -79,7 +79,7 @@ RUN mkdir models && mkdir "models/${AWS_BUCKET_NAME}"
 RUN wget "http://ghadjeres.s3.amazonaws.com/${AWS_BUCKET_NAME}/config.py" -P "models/${AWS_BUCKET_NAME}"
 RUN wget "http://ghadjeres.s3.amazonaws.com/${AWS_BUCKET_NAME}/overfitted/model" -P "models/${AWS_BUCKET_NAME}/overfitted"
 
-# dirty fixes because because it's useless to upload the dataset
+# dirty fixes because it's useless to upload the dataset
 RUN mkdir -p /root/Data/dataset_cache/PianoMidi \
     && mkdir -p /root/Data/databases/Piano/transcriptions/midi/ \
     && mkdir -p /root/Data/dataset_cache/PianoMidi/PianoMidi-PianoIterator \

@@ -20,11 +20,11 @@ class Handler:
 
     def init_optimizers(self, lr=1e-3):
         # self.optimizer = torch.optim.Adam(list(self.parameters()), lr=lr)
-        # self.optimizer = torch.optim.AdamW(list(self.parameters()),
-        #                                    lr=lr,
-        #                                    weight_decay=1e-3)
-        self.optimizer = Adafactor(
-            self.parameters())
+        self.optimizer = torch.optim.AdamW(list(self.parameters()),
+                                           lr=lr,
+                                           weight_decay=1e-3)
+        # self.optimizer = Adafactor(
+        #     self.parameters())
 
     # ==== Wrappers
     def forward(self, target, metadata_dict):
