@@ -106,7 +106,15 @@ RUN pip install pytorch-fast-transformers
 EXPOSE 8080
 ENV CUDA_VISIBLE_DEVICES=0
 
+# PIAv2
+# ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "cia2", \
+#             "python", "app.py", \
+#             "--config=models/piano_event_performer_2021-09-03_18:40:31_finetune/config.py", \            
+#             "-o", "--num_workers=0"]
+
+
+# PIAv3: uses app_no_region
 ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "cia2", \
-            "python", "app.py", \
-            "--config=models/piano_event_performer_2021-09-03_18:40:31_finetune/config.py", \
+            "python", "app_no_region.py", \       
+            "--config=models/piano_event_performer_2021-10-01_16:03:06_TOWER_32j/config.py", \
             "-o", "--num_workers=0"]
