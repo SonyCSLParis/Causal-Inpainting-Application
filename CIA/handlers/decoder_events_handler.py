@@ -92,7 +92,9 @@ class DecoderEventsHandler(Handler):
                               metadata_dict,
                               temperature=1.,
                               top_p=1.,
-                              top_k=0):
+                              top_k=0,
+                              num_max_generated_events=None
+                              ):
         # TODO add arguments to preprocess
         print(f'Placeholder duration: {metadata_dict["placeholder_duration"]}')
         self.eval()
@@ -104,6 +106,10 @@ class DecoderEventsHandler(Handler):
         decoding_end = None
         decoding_start_event = metadata_dict['decoding_start']
         x[:, decoding_start_event:] = 0
+        
+        if num_max_generated_events is not None:
+            num_events = min(decoding_start_event + num_max_generated_events,
+                             num_events)
         with torch.no_grad():
             # event_index corresponds to the position of the token BEING generated
             for event_index in range(decoding_start_event, num_events):

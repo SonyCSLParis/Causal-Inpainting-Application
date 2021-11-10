@@ -278,7 +278,7 @@ def get_decoder(data_processor, dataloader_generator, positional_embedding,
                 label_smoothing=decoder_kwargs['label_smoothing'],
                 transformer=transformer,
                 pe_input_type=pe_input_type)
-        elif handler_type == 'mlp':
+        elif autoregressive_decoding_type == 'mlp':
             decoder = CausalEventsModel(
                 data_processor=data_processor,
                 dataloader_generator=dataloader_generator,
