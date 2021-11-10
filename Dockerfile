@@ -1,9 +1,15 @@
-# build this image with the following command
+# ==== Build this image with the following command
+# PIAv2
 # docker build -t piano_inpainting_app:v2 --build-arg GITHUB_TOKEN="$(cat /home/gaetan/.secrets/github_token)" --build-arg SSH_PRIVATE_KEY="$(cat /home/gaetan/.ssh/id_rsa)" --build-arg AWS_BUCKET_NAME="piano_event_performer_2021-09-03_18:40:31_finetune" .
 
+# PIAv3
+# docker build -t piano_inpainting_app:v3 --build-arg GITHUB_TOKEN="$(cat /home/gaetan/.secrets/github_token)" --build-arg SSH_PRIVATE_KEY="$(cat /home/gaetan/.ssh/id_rsa)" --build-arg AWS_BUCKET_NAME="piano_event_performer_2021-10-01_16:03:06_TOWER_32j" .  
 
-# Run with docker with
+
+# ===== Run with docker with
 # docker run -e NVIDIA_VISIBLE_DEVICES=7 --rm -it -p 5000:8080 --gpus=0 piano_inpainting_app:v2 serve
+# or 
+# docker run -e NVIDIA_VISIBLE_DEVICES=7 --rm -it -p 5000:8080 --gpus=0 piano_inpainting_app:v3 serve
 
 # Need to use nvidia-container-runtime to build docker with GPUs
 # https://github.com/nvidia/nvidia-container-runtime#docker-engine-setup
@@ -30,9 +36,13 @@ RUN git clone git@github.com:SonyCSLParis/DatasetManager.git /workspace/DatasetM
     && git clone git@github.com:Ghadjeres/fast-transformers.git /workspace/fast-transformers \
     && git clone git@github.com:SonyCSLParis/jazz-music21.git /workspace/jazz-music21
 
-RUN curl -vJLO -H "Authorization: token ${GITHUB_TOKEN}" "https://github.com/SonyCSLParis/CIA/archive/refs/tags/v0.2.tar.gz"
+# PIAv2
+# RUN curl -vJLO -H "Authorization: token ${GITHUB_TOKEN}" "https://github.com/SonyCSLParis/CIA/archive/refs/tags/v0.2.tar.gz"
+# RUN tar -xvzf CIA-0.2.tar.gz && mv CIA-0.2/ /workspace/CIA
 
-RUN tar -xvzf CIA-0.2.tar.gz && mv CIA-0.2/ /workspace/CIA
+# PIAv3
+RUN curl -vJLO -H "Authorization: token ${GITHUB_TOKEN}" "https://github.com/SonyCSLParis/CIA/archive/refs/tags/v0.3.tar.gz"
+RUN tar -xvzf CIA-0.3.tar.gz && mv CIA-0.2/ /workspace/CIA
 
 FROM nvidia/cuda:11.1-devel-ubuntu20.04
 
