@@ -159,7 +159,8 @@ def invocations():
         clip_start = selected_region['start']
     else:
         clip_start = d['clip_start']
-        
+    print(selected_region, clip_start)
+    
     tempo = d['tempo']
     beats_per_second = tempo / 60
     seconds_per_beat = 1 / beats_per_second
@@ -177,7 +178,7 @@ def invocations():
         notes_before = d['notes_before_next_region']
         notes_after = d['notes_after_region']
 
-        # selected_region does NOT contain the right start!
+        # selected_region MUST contain the right start!
         x, metadata_dict, unused_before, before, after, unused_after, selected_region, region_after_start_time = json_to_tensor(
             notes_before, notes_after, seconds_per_beat, selected_region)
         regenerate_first_ts = False
@@ -202,24 +203,26 @@ def invocations():
     ],
                       dim=0).detach().cpu()
 
-    ableton_notes, track_duration = tensor_to_ableton(
+    # ableton_notes is useful ONLY when done!
+    ableton_notes, track_duration, _ = tensor_to_ableton(
         new_x,
         start_time=clip_start,
         beats_per_second=beats_per_second,
         rescale=False)
 
-    ableton_notes_region, _ = tensor_to_ableton(
+    ableton_notes_region, _, _ = tensor_to_ableton(
         generated_region[0].detach().cpu(),
         start_time=selected_region['start'],
         expected_duration=(selected_region['end'] - selected_region['start']) *
         seconds_per_beat,
         beats_per_second=beats_per_second,
-        rescale=done)
+        # rescale=done)
+        rescale=False)
 
     after_region = torch.cat([after[0], unused_after[0]],
                              dim=0).detach().cpu()
 
-    ableton_notes_after_region, _ = tensor_to_ableton(
+    ableton_notes_after_region, _, _ = tensor_to_ableton(
         after_region,
         start_time=region_after_start_time,  # TODO Check!,
         beats_per_second=beats_per_second)
@@ -228,7 +231,7 @@ def invocations():
     # to be used by next requests
     new_before = torch.cat([unused_before[0], before[0], generated_region[0]],
                            dim=0).detach().cpu()
-    ableton_notes_new_before, _ = tensor_to_ableton(
+    ableton_notes_new_before, _, time_next_note_before = tensor_to_ableton(
         new_before,
         start_time=clip_start,
         beats_per_second=beats_per_second,
@@ -236,8 +239,12 @@ def invocations():
     
     ableton_notes_region = shorten_durations(ableton_notes_region,
                                              ableton_notes_after_region)
+    
+    # We must update the selected region!
+    # Next note starts at new_before_duration
+    selected_region['start'] = time_next_note_before
 
-    print(f'albeton notes: {ableton_notes}')
+    # print(f'albeton notes: {ableton_notes}')
     print(f'region start: {ableton_notes_region}')
     d = {
         'id': d['id'],
@@ -254,7 +261,9 @@ def invocations():
         'clip_end': d['clip_end'],
         'detail_clip_id': d['detail_clip_id'],
         'tempo': d['tempo']
-    }
+    }    
+    print('after')
+    print(selected_region)        
     return jsonify(d)
 
 def shorten_durations(generated_notes, notes_after):
@@ -681,7 +690,7 @@ def tensor_to_ableton(tensor,
     """
     num_events, num_channels = tensor.size()
     if num_events == 0:
-        return [], 0
+        return [], 0, start_time
     # channels are ['pitch', 'velocity', 'duration', 'time_shift']
     notes = []
 
@@ -691,14 +700,16 @@ def tensor_to_ableton(tensor,
 
     timeshifts = torch.FloatTensor(
         [index2value['time_shift'][ts.item()] for ts in tensor[:, 3]])
+    
+    # compute rescaling factor
     time = torch.cumsum(timeshifts, dim=0)
-
     actual_duration = time[-1].item()
     if rescale and actual_duration > 0:
         rescaling_factor = expected_duration / actual_duration
     else:
         rescaling_factor = 1
 
+    # update time if needed, takes into acount start_time
     time = (torch.cat([torch.zeros(
         (1, )), time[:-1]], dim=0) * rescaling_factor * beats_per_second +
             start_time)
@@ -713,8 +724,10 @@ def tensor_to_ableton(tensor,
 
     track_duration = time[-1].item() + (notes[-1]['duration'].item() *
                                         rescaling_factor * beats_per_second)
+    time_next_note = actual_duration * beats_per_second + start_time
     
-    return notes, track_duration
+    print(f'LAST timeshift out {timeshifts[-1]}  {timeshifts[-1]}')
+    return notes, track_duration, time_next_note
 
 
 def json_to_tensor(notes_before_json,
@@ -784,7 +797,9 @@ def json_to_tensor(notes_before_json,
 
     # time in beats
     region_after_start_time = selected_region['end']
-    # region_after_start_time = d_after['time'][0]
+    last_time_shift_before = (selected_region['start'] - d_before['time'][-1].item()) * seconds_per_beat
+    
+    print(f'LAST TIMESHIFT IN {last_time_shift_before}')
 
     # multiply by tempo
     d_before['time'] = d_before['time'] * seconds_per_beat
@@ -793,7 +808,7 @@ def json_to_tensor(notes_before_json,
     # compute time_shift
     d_before['time_shift'] = torch.cat(
         [d_before['time'][1:] - d_before['time'][:-1],
-         torch.zeros(1, )],
+         torch.tensor([last_time_shift_before])],
         dim=0)
 
     d_after['time'] = d_after['time'] * seconds_per_beat
@@ -804,20 +819,10 @@ def json_to_tensor(notes_before_json,
         [d_after['time'][1:] - d_after['time'][:-1],
          torch.zeros(1, )], dim=0)
 
-    # start time cannot be empty    
-    start_time = d_before['time'][-1]
-    # end_time = d_after['time'][0]
-    end_time = selected_region['end'] * seconds_per_beat
-
     # compute placeholder
-    # end_time must be the first starting time after the selected region
+    # selected region already contains exactly the correct durations
 
-    # TODO compare with end_time!
-    # update_selected_region
-    selected_region['start'] = start_time.item() / seconds_per_beat
-    # selected_region['end'] = end_time / seconds_per_beat - 1e-2
-
-    placeholder_duration = (end_time - start_time)
+    placeholder_duration = (selected_region['end'] - selected_region['start']) * seconds_per_beat
     placeholder_duration = cuda_variable(torch.Tensor([placeholder_duration]))
     global data_processor
 
@@ -825,11 +830,6 @@ def json_to_tensor(notes_before_json,
         placeholder_duration=placeholder_duration, batch_size=1)
 
     event_start = len(d_before['time'])
-    if event_start > 0:
-        # TODO is this really used?
-        last_time_shift_before = start_time.item() * seconds_per_beat - d_before[
-            'time'][event_start - 1].item()
-
     # delete unnecessary entries in dict
     del d_before['time']
     del d_after['time']
