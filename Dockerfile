@@ -42,7 +42,7 @@ RUN git clone git@github.com:SonyCSLParis/DatasetManager.git /workspace/DatasetM
 
 # PIAv3
 RUN curl -vJLO -H "Authorization: token ${GITHUB_TOKEN}" "https://github.com/SonyCSLParis/CIA/archive/refs/tags/v0.3.tar.gz"
-RUN tar -xvzf CIA-0.3.tar.gz && mv CIA-0.2/ /workspace/CIA
+RUN tar -xvzf CIA-0.3.tar.gz && mv CIA-0.3/ /workspace/CIA
 
 FROM nvidia/cuda:11.1-devel-ubuntu20.04
 
