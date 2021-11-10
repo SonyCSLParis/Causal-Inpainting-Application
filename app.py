@@ -89,6 +89,7 @@ def main(rank, overfitted, config, num_workers, world_size, model_dir):
     # positional embedding
     positional_embedding: PositionalEmbedding = get_positional_embedding(
         dataloader_generator=dataloader_generator,
+        data_processor=data_processor,
         positional_embedding_dict=config['positional_embedding_dict'])
 
     # sos embedding

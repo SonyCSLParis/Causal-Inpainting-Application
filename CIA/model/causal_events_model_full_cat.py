@@ -91,7 +91,7 @@ class CausalEventsModelFullCat(nn.Module):
         # compute input to layer positional embeddings
         if self.pe_input_type is not None:
             layer_pos_emb_input = get_pe_input(
-                dataloader_generator=self.dataloader_generator,
+                data_processor=self.data_processor,
                 x_embed=target_seq,
                 h=h_pe_init,
                 metadata_dict=metadata_dict,
@@ -121,10 +121,9 @@ class CausalEventsModelFullCat(nn.Module):
 
         # WE do NOT flatten
         # target_seq = flatten(target_embedded)
+        # target_seq is (batch_size, num_vents, dim * num_channels)
         target_seq = torch.cat(target_embedded.split(1, dim=2),
                                dim=3).squeeze(2)
-
-        # target_seq is (batch_size, num_vents, dim * num_channels)
 
         target_seq, layer_pos_emb_input, h_pe = self.prepare_sequence(
             target_seq, metadata_dict, h_pe_init)
@@ -185,9 +184,8 @@ class CausalEventsModelFullCat(nn.Module):
                 mask=loss_mask_inpainting,
                 label_smoothing=self.label_smoothing)
 
-            num_tokens_prefix = loss_mask_prefix.sum()
-            num_tokens_inpainting = loss_mask_inpainting.sum()
-
+            # num_tokens_prefix = loss_mask_prefix.sum()
+            # num_tokens_inpainting = loss_mask_inpainting.sum()
             # loss = (loss_prefix * num_tokens_prefix + loss_inpainting * num_tokens_inpainting) / \
             #     (num_tokens_prefix + num_tokens_inpainting)
 

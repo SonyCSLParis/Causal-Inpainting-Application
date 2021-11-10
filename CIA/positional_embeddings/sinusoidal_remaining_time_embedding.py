@@ -5,11 +5,11 @@ import torch
 import math
 
 
-class SinusoidalElapsedTimeEmbedding(BasePositionalEmbedding):
+class SinusoidalRemainingTimeEmbedding(BasePositionalEmbedding):
     def __init__(self, positional_embedding_size, num_channels,
                  dataloader_generator, data_processor, dropout,
                  expand_channels, **kwargs):
-        super(SinusoidalElapsedTimeEmbedding,
+        super(SinusoidalRemainingTimeEmbedding,
               self).__init__(expand_channels=expand_channels)
         assert positional_embedding_size % 2 == 0
         self.data_processor = data_processor
@@ -29,11 +29,15 @@ class SinusoidalElapsedTimeEmbedding(BasePositionalEmbedding):
 
         # add embedding_dim to elapsed time
         elapsed_time = self.data_processor.compute_elapsed_time(metadata_dict)
-        elapsed_time = elapsed_time.unsqueeze(2)
-        # TODO scale?! only 10?!
-        elapsed_time = elapsed_time * 100
+        remaining_time = metadata_dict['placeholder_duration'].unsqueeze(1) - elapsed_time
+        # zero remaining_time in prefix
+        remaining_time[:, :self.data_processor.num_events_end] = 0
+        assert torch.all(remaining_time >= -9e-3), f'negative remaining_time values: {torch.min(remaining_time)}'
+        remaining_time = remaining_time.unsqueeze(2)
+        # scaling
+        remaining_time = remaining_time * 100
 
-        # sinusoids
+        # sinusoid
         pe = torch.zeros(batch_size, num_events,
                          self.positional_embedding_size)
         pe = pe.to(device=x_embed.device)
@@ -42,8 +46,8 @@ class SinusoidalElapsedTimeEmbedding(BasePositionalEmbedding):
             (-math.log(10000.0) / self.positional_embedding_size))
         div_term = div_term.to(device=x_embed.device)
         div_term = div_term.unsqueeze(0).unsqueeze(0)
-        pe[:, :, 0::2] = torch.sin(elapsed_time * div_term)
-        pe[:, :, 1::2] = torch.cos(elapsed_time * div_term)
+        pe[:, :, 0::2] = torch.sin(remaining_time * div_term)
+        pe[:, :, 1::2] = torch.cos(remaining_time * div_term)
 
         if self.expand_channels:
             pos_embedding = pe.repeat_interleave(self.num_channels, dim=1)

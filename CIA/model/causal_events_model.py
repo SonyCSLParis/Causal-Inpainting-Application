@@ -1,7 +1,7 @@
 from CIA.model.positional_embeddings.get_pe_input import get_pe_input
 from CIA.positional_embeddings.positional_embedding import PositionalEmbedding
 from torch import nn
-from CIA.data_processors import DataProcessor
+from CIA.data_processors import DataProcessor, data_processor
 from CIA.dataloaders.dataloader import DataloaderGenerator
 from CIA.utils import flatten, categorical_crossentropy
 import torch
@@ -88,7 +88,7 @@ class CausalEventsModel(nn.Module):
 
         if self.pe_input_type is not None:
             layer_pos_emb_input = get_pe_input(
-                dataloader_generator=self.dataloader_generator,
+                data_processor=self.data_processor,
                 x_embed=target_seq,
                 h=h_pe_init,
                 metadata_dict=metadata_dict,

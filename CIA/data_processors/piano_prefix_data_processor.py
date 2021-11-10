@@ -46,7 +46,7 @@ class PianoPrefixDataProcessor(DataProcessor):
         ]),
             requires_grad=False)
 
-    def preprocess(self, x, num_events_middle):
+    def preprocess(self, x, num_events_inpainted):
         """[summary]
 
         Args:
@@ -63,6 +63,7 @@ class PianoPrefixDataProcessor(DataProcessor):
         before  placeholder  after  SOD  middle  END XX XX
 
         """
+        num_events_middle = num_events_inpainted
         sequences_size = self.dataloader_generator.sequences_size
         batch_size, num_events, _ = x.size()
         assert num_events == sequences_size
@@ -277,23 +278,23 @@ class PianoPrefixDataProcessor(DataProcessor):
         # add placeholder: it is added at num_events_before position
         final_mask[:, self.num_events_before, :] = True
 
-        decoding_start = self.num_events_before + self.num_events_after + 2
-        # compute decoding_end
-        is_end_token_new_middle = (
-            new_middle[:, :, 0] == self.end_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
-                batch_size, new_middle.size(1)))
-        # only valid when containes_end_token!!
-        end_token_location_new_middle = torch.argmax(
-            is_end_token_new_middle.long(), dim=1)
-        decoding_end = self.num_events_before + \
-            self.num_events_after + 2 + end_token_location_new_middle
+        # decoding_start = self.num_events_before + self.num_events_after + 2
+        # # compute decoding_end
+        # is_end_token_new_middle = (
+        #     new_middle[:, :, 0] == self.end_tokens[0].unsqueeze(0).unsqueeze(0).repeat(
+        #         batch_size, new_middle.size(1)))
+        # # only valid when containes_end_token!!
+        # end_token_location_new_middle = torch.argmax(
+        #     is_end_token_new_middle.long(), dim=1)
+        # decoding_end = self.num_events_before + \
+        #     self.num_events_after + 2 + end_token_location_new_middle
 
         # self.num_events_before + self.num_events_after + 1 is the location
         # of the SOD symbol (only the placeholder is added)
         metadata_dict = {
             'placeholder_duration': placeholder_duration,
-            'decoding_start': decoding_start,
-            'decoding_end': decoding_end,
+            # 'decoding_start': decoding_start,
+            # 'decoding_end': decoding_end,
             'original_sequence': y,
             'loss_mask': final_mask
         }
@@ -315,6 +316,37 @@ class PianoPrefixDataProcessor(DataProcessor):
                     self.dataloader_generator.get_feature_index(
                         'time_shift')] = placeholder_duration_token
         return placeholder, placeholder_duration_token
+
+    def compute_elapsed_time(self, metadata_dict):
+        # if h is None:
+        #     h = torch.zeros((x_embed.size(0),)).to(x_embed.device)
+        # Original sequence is in prefix order!
+        x = metadata_dict['original_sequence']
+        _, _, num_channels = x.size()
+        elapsed_time = self.dataloader_generator.get_elapsed_time(x)
+        # h = elapsed_time[:, -1]
+        # h = h - elapsed_time[:, metadata_dict['decoding_start'] - 1]
+        # add zeros
+        elapsed_time = torch.cat(
+            [
+                torch.zeros_like(elapsed_time)[:, :1],
+                elapsed_time[:, :-1]
+            ],
+            dim=1
+        )
+        if elapsed_time.size(1) > metadata_dict['decoding_start']:
+            # we need to have an offset for the generated inpainted region
+            elapsed_time[:, metadata_dict['decoding_start']:] = (
+                elapsed_time[:, metadata_dict['decoding_start']:] -
+                elapsed_time[:, metadata_dict['decoding_start']].unsqueeze(1) +
+                elapsed_time[:, 255].unsqueeze(1)
+            )
+        # TODO scale?! only 10?!
+        # elapsed_time = elapsed_time * 100
+        # h = h * 100
+        if torch.any(elapsed_time < 0):
+            print('stop')
+        return elapsed_time
 
     def postprocess(self, x, decoding_end, metadata_dict):
         decoding_start = metadata_dict['decoding_start']

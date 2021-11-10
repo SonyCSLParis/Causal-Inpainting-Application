@@ -24,12 +24,12 @@ class LocalAttention_(nn.Module):
     def forward(self, q, k, q_rot, k_rot, v, states, inferring_states):
         shape = q.shape
 
-        merge_into_batch = lambda t: t.reshape(-1, *t.shape[-2:])
+        merge_into_batch = lambda t: t.reshape(-1, *t.shape[-2:]) if t is not None else None
         q, k, q_rot, k_rot, v = map(merge_into_batch, (q, k, q_rot, k_rot, v))
 
         if self.autopad:
             orig_t = q.shape[1]
-            q, k, q_rot, k_rot, v = map(lambda t: pad_to_multiple(t, self.window_size, dim=-2), (q, k, q_rot, k_rot, v))
+            q, k, q_rot, k_rot, v = map(lambda t: pad_to_multiple(t, self.window_size, dim=-2) if t is not None else None, (q, k, q_rot, k_rot, v))
 
         window_size, look_backward, look_forward = self.window_size, self.look_backward, self.look_forward
         b, t, e, device, dtype = *q.shape, q.device, q.dtype
@@ -40,49 +40,45 @@ class LocalAttention_(nn.Module):
         ticker = torch.arange(t, device=device, dtype=dtype)[None, :]
         b_t = ticker.reshape(1, windows, window_size)
 
-        bucket_fn = lambda t: t.reshape(b, windows, window_size, -1)
+        bucket_fn = lambda t: t.reshape(b, windows, window_size, -1) if t is not None else None
         bq, bk, bq_rot, bk_rot, bv = map(bucket_fn, (q, k, q_rot, k_rot, v))
 
         look_around_kwargs = {'backward': look_backward, 'forward': look_forward}
         bk = look_around(bk, **look_around_kwargs)
-        bk_rot = look_around(bk_rot, **look_around_kwargs)
+        if bk_rot is not None:
+            bk_rot = look_around(bk_rot, **look_around_kwargs)
         bv = look_around(bv, **look_around_kwargs)
 
         bq_t = b_t
         bq_k = look_around(b_t, **look_around_kwargs)
 
         dots = torch.einsum('bhie,bhje->bhij', bq, bk) * (e ** -0.5)
-        dots_rot = torch.einsum('bhie,bhje->bhij', bq_rot, bk_rot) * (e ** -0.5)
+        if q_rot is not None:
+            dots_rot = torch.einsum('bhie,bhje->bhij', bq_rot, bk_rot) * (e ** -0.5)
 
         mask_value = max_neg_value(dots)
-        mask_value_rot = max_neg_value(dots_rot)
+        if q_rot is not None:
+            mask_value_rot = max_neg_value(dots_rot)
 
         mask = bq_t[:, :, :, None] < bq_k[:, :, None, :]
         if self.exact_windowsize:
             max_causal_window_size = (self.window_size * self.look_backward)
             mask = mask | (bq_t[:, :, :, None] > (bq_k[:, :, None, :] + max_causal_window_size))
         dots.masked_fill_(mask, mask_value)
-        dots_rot.masked_fill_(mask, mask_value_rot)
+        if q_rot is not None:
+            dots_rot.masked_fill_(mask, mask_value_rot)
         del mask
 
         mask = bq_k[:, :, None, :] == -1
         dots.masked_fill_(mask, mask_value)
-        dots_rot.masked_fill_(mask, mask_value_rot)
+        if q_rot is not None:
+            dots_rot.masked_fill_(mask, mask_value_rot)
         del mask
 
-        # if input_mask is not None:
-        #     h = b // input_mask.shape[0]
-        #     if self.autopad:
-        #         input_mask = pad_to_multiple(input_mask, window_size, dim=-1, value=False)
-        #     input_mask = input_mask.reshape(-1, windows, window_size)
-        #     mq = mk = input_mask
-        #     mk = look_around(mk, pad_value=False, **look_around_kwargs)
-        #     mask = (mq[:, :, :, None] * mk[:, :, None, :])
-        #     mask = merge_dims(0, 1, expand_dim(mask, 1, h))
-        #     dots.masked_fill_(~mask, mask_value)
-        #     del mask
-
-        attn = (dots + dots_rot).softmax(dim=-1)
+        if q_rot is None:
+            attn = dots.softmax(dim=-1)
+        else:
+            attn = (dots + dots_rot).softmax(dim=-1)
         attn = self.dropout(attn)
 
         out = torch.einsum('bhij,bhje->bhie', attn, bv)

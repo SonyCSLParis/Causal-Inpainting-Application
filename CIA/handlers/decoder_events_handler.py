@@ -54,7 +54,7 @@ class DecoderEventsHandler(Handler):
             with torch.no_grad():
                 x = tensor_dict['x']
                 x, metadata_dict = self.data_processor.preprocess(
-                    x, num_events_middle=None)
+                    x, num_events_inpainted=None)
 
             # ========Train decoder =============
             self.optimizer.zero_grad()
@@ -171,7 +171,7 @@ class DecoderEventsHandler(Handler):
                 done = True
 
         num_event_generated = decoding_end - decoding_start_event
-        
+
         generated_region = x[:, decoding_start_event:decoding_end]
         # TODO return everything on GPU
         return x.cpu(), generated_region, decoding_end, num_event_generated, done
