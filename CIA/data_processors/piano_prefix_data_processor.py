@@ -9,7 +9,7 @@ from CIA.utils import cuda_variable
 
 class PianoPrefixDataProcessor(DataProcessor):
     def __init__(self, dataloader_generator, embedding_size, num_events,
-                 num_tokens_per_channel, num_events_before, num_events_after):
+                 num_tokens_per_channel, num_events_context):
         super(PianoPrefixDataProcessor,
               self).__init__(embedding_size=embedding_size,
                              num_events=num_events,

@@ -6,49 +6,57 @@ from torch import nn
 from CIA.utils import cuda_variable
 from DatasetManager.piano.piano_midi_dataset import PAD_SYMBOL, START_SYMBOL
 
+
 class PianoDataProcessor(DataProcessor):
-    def __init__(self,
-                 dataloader_generator,
-                 embedding_size,
-                 num_events,
-                 num_tokens_per_channel,
-                 add_mask_token=False):
-        super(PianoDataProcessor,
-              self).__init__(embedding_size=embedding_size,
-                             num_events=num_events,
-                             num_tokens_per_channel=num_tokens_per_channel,
-                             add_mask_token=add_mask_token)
+    def __init__(
+        self,
+        dataloader_generator,
+        embedding_size,
+        num_events,
+        num_tokens_per_channel,
+        add_mask_token=False,
+    ):
+        super(PianoDataProcessor, self).__init__(
+            embedding_size=embedding_size,
+            num_events=num_events,
+            num_tokens_per_channel=num_tokens_per_channel,
+            add_mask_token=add_mask_token,
+        )
 
         # These are used to compute the loss_mask
         self.dataloader_generator = dataloader_generator
-        self.pad_tokens = nn.Parameter(torch.LongTensor([
-            self.dataloader_generator.dataset.value2index[feature][PAD_SYMBOL]
-            for feature in self.dataloader_generator.features
-        ]),
-                                       requires_grad=False)
+        self.pad_tokens = nn.Parameter(
+            torch.LongTensor(
+                [
+                    self.dataloader_generator.dataset.value2index[feature][PAD_SYMBOL]
+                    for feature in self.dataloader_generator.features
+                ]
+            ),
+            requires_grad=False,
+        )
 
-        self.start_tokens = nn.Parameter(torch.LongTensor([
-            self.dataloader_generator.dataset.value2index[feature]
-            [START_SYMBOL] for feature in self.dataloader_generator.features
-        ]),
-                                         requires_grad=False)
-
+        self.start_tokens = nn.Parameter(
+            torch.LongTensor(
+                [
+                    self.dataloader_generator.dataset.value2index[feature][START_SYMBOL]
+                    for feature in self.dataloader_generator.features
+                ]
+            ),
+            requires_grad=False,
+        )
 
     def preprocess(self, x):
         x = cuda_variable(x.long())
         batch_size, num_events, _ = x.size()
-        padding_mask = (
-            x[:, :, :] == self.pad_tokens.unsqueeze(0).unsqueeze(0).repeat(
-                batch_size, num_events, 1))
-        start_mask = (
-            x[:, :, :] == self.start_tokens.unsqueeze(0).unsqueeze(0).repeat(
-                batch_size, num_events, 1))
+        padding_mask = x[:, :, :] == self.pad_tokens.unsqueeze(0).unsqueeze(0).repeat(
+            batch_size, num_events, 1
+        )
+        start_mask = x[:, :, :] == self.start_tokens.unsqueeze(0).unsqueeze(0).repeat(
+            batch_size, num_events, 1
+        )
 
         loss_mask = padding_mask + start_mask
-        metadata_dict = dict(
-            loss_mask=loss_mask,
-            original_sequence=x
-        )
+        metadata_dict = dict(loss_mask=loss_mask, original_sequence=x)
         return x, metadata_dict
 
     def postprocess(self, reconstruction, original=None):
@@ -56,8 +64,8 @@ class PianoDataProcessor(DataProcessor):
             # Just concatenate along batch dimension original and reconstruction
             original = original.long()
             tensor_score = torch.cat(
-                [original[0].unsqueeze(0),
-                 reconstruction.cpu()], dim=0)
+                [original[0].unsqueeze(0), reconstruction.cpu()], dim=0
+            )
             #  Add a first empty dimension as everything will be written in one score
             return tensor_score.unsqueeze(0)
         else:
@@ -65,45 +73,58 @@ class PianoDataProcessor(DataProcessor):
 
 
 class MaskedPianoSourceTargetDataProcessor(SourceTargetDataProcessor):
-    def __init__(self, dataloader_generator, embedding_size, num_events, num_tokens_per_channel):
+    def __init__(
+        self, dataloader_generator, embedding_size, num_events, num_tokens_per_channel
+    ):
 
         encoder_data_processor = PianoDataProcessor(
             dataloader_generator=dataloader_generator,
             embedding_size=embedding_size,
             num_events=num_events,
             num_tokens_per_channel=num_tokens_per_channel,
-            add_mask_token=True)
+            add_mask_token=True,
+        )
 
         decoder_data_processor = PianoDataProcessor(
             dataloader_generator=dataloader_generator,
             embedding_size=embedding_size,
             num_events=num_events,
             num_tokens_per_channel=num_tokens_per_channel,
-            add_mask_token=False)
+            add_mask_token=False,
+        )
 
-        super(MaskedPianoSourceTargetDataProcessor,
-              self).__init__(encoder_data_processor=encoder_data_processor,
-                             decoder_data_processor=decoder_data_processor)
+        super(MaskedPianoSourceTargetDataProcessor, self).__init__(
+            encoder_data_processor=encoder_data_processor,
+            decoder_data_processor=decoder_data_processor,
+        )
 
         # (num_channels, ) LongTensor
-        self.mask_symbols = nn.Parameter(torch.LongTensor(
-            self.encoder_data_processor.num_tokens_per_channel),
-                                         requires_grad=False)
+        self.mask_symbols = nn.Parameter(
+            torch.LongTensor(self.encoder_data_processor.num_tokens_per_channel),
+            requires_grad=False,
+        )
 
-         # These are used to compute the loss_mask
+        # These are used to compute the loss_mask
         self.dataloader_generator = dataloader_generator
-        self.pad_tokens = nn.Parameter(torch.LongTensor([
-            self.dataloader_generator.dataset.value2index[feature][PAD_SYMBOL]
-            for feature in self.dataloader_generator.features
-        ]),
-                                       requires_grad=False)
+        self.pad_tokens = nn.Parameter(
+            torch.LongTensor(
+                [
+                    self.dataloader_generator.dataset.value2index[feature][PAD_SYMBOL]
+                    for feature in self.dataloader_generator.features
+                ]
+            ),
+            requires_grad=False,
+        )
 
-        self.start_tokens = nn.Parameter(torch.LongTensor([
-            self.dataloader_generator.dataset.value2index[feature]
-            [START_SYMBOL] for feature in self.dataloader_generator.features
-        ]),
-                                         requires_grad=False)
-
+        self.start_tokens = nn.Parameter(
+            torch.LongTensor(
+                [
+                    self.dataloader_generator.dataset.value2index[feature][START_SYMBOL]
+                    for feature in self.dataloader_generator.features
+                ]
+            ),
+            requires_grad=False,
+        )
 
     def _mask_source(self, x, masked_positions=None):
         """Add a MASK symbol
@@ -123,14 +144,15 @@ class MaskedPianoSourceTargetDataProcessor(SourceTargetDataProcessor):
 
             # event masking:
             masked_positions = torch.rand_like(x[:, :, 0].float()) > p
-            masked_positions = masked_positions.unsqueeze(2).repeat(
-                1, 1, num_channels)
+            masked_positions = masked_positions.unsqueeze(2).repeat(1, 1, num_channels)
 
         masked_positions = masked_positions.long()
-        mask_symbols = self.mask_symbols.unsqueeze(0).unsqueeze(0).repeat(
-            batch_size, num_events, 1)
-        masked_x = (x * (1 - masked_positions) +
-                    masked_positions * mask_symbols)
+        mask_symbols = (
+            self.mask_symbols.unsqueeze(0)
+            .unsqueeze(0)
+            .repeat(batch_size, num_events, 1)
+        )
+        masked_x = x * (1 - masked_positions) + masked_positions * mask_symbols
         return masked_x, masked_positions
 
     def postprocess(self, x):
@@ -150,15 +172,17 @@ class MaskedPianoSourceTargetDataProcessor(SourceTargetDataProcessor):
 
         # compute loss_mask
         batch_size, num_events, _ = target.size()
-        padding_mask = (
-            target[:, :, :] == self.pad_tokens.unsqueeze(0).unsqueeze(0).repeat(
-                batch_size, num_events, 1))
-        start_mask = (
-            target[:, :, :] == self.start_tokens.unsqueeze(0).unsqueeze(0).repeat(
-                batch_size, num_events, 1))
+        padding_mask = target[:, :, :] == self.pad_tokens.unsqueeze(0).unsqueeze(
+            0
+        ).repeat(batch_size, num_events, 1)
+        start_mask = target[:, :, :] == self.start_tokens.unsqueeze(0).unsqueeze(
+            0
+        ).repeat(batch_size, num_events, 1)
 
         loss_mask = padding_mask + start_mask
-        metadata_dict = dict(masked_positions=masked_positions,
-                             original_sequence=target,
-                             loss_mask=loss_mask)
+        metadata_dict = dict(
+            masked_positions=masked_positions,
+            original_sequence=target,
+            loss_mask=loss_mask,
+        )
         return source, target, metadata_dict
