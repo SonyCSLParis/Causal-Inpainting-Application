@@ -70,6 +70,7 @@ class PianoPrefixEndDataProcessor(DataProcessor):
         return rev_x
 
     def dereverse(self, rev_x):
+        assert rev_x.shape == (1, 256, 4)
         ts_channel = self.dataloader_generator.features.index('time_shift')
         rev_x[:, 1:, ts_channel] = rev_x[:, :-1, ts_channel]
         x = torch.flip(rev_x, [1])
@@ -355,6 +356,6 @@ class PianoPrefixEndDataProcessor(DataProcessor):
             end_token_location = torch.argmax(is_end_token.long(), dim=1)
             after = after[:, :end_token_location]
 
-        # put all pieces in order:
+        # put all pieces in order
         x_out = torch.cat([before, after], dim=1)
         return x_out

@@ -2,7 +2,6 @@
 @author: Gaetan Hadjeres
 """
 from CIA.utils import get_free_port
-from CIA.handlers import DecoderPrefixHandler
 from CIA.positional_embeddings.positional_embedding import PositionalEmbedding
 import importlib
 import os
@@ -186,19 +185,22 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
     ############################################################
     start_time = time.time()
     x_gen, generated_region, decoding_end, num_event_generated, done = decoder_handler.inpaint_non_optimized(
-        x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
+        x=x.clone(),
+        metadata_dict=metadata_dict,
+        temperature=1.,
+        top_p=0.95,
+        top_k=0)
     end_time = time.time()
     ############################################################
-    x_inpainted = data_processor.postprocess(
-        x_gen,
-        decoding_end,
-        metadata_dict
-    )
+    x_inpainted = data_processor.postprocess(x_gen, decoding_end,
+                                             metadata_dict)
 
     # Timing infos
     print(f'Num events_generated: {num_event_generated}')
     print(f'Time generation: {end_time - start_time}')
-    print(f'Average time per generated event: {(end_time - start_time) / num_event_generated}')
+    print(
+        f'Average time per generated event: {(end_time - start_time) / num_event_generated}'
+    )
 
     # Saving
     timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
@@ -208,14 +210,14 @@ def main(rank, train, load, overfitted, config, num_workers, world_size,
         path_no_extension = f'{decoder_handler.model_dir}/generations/{timestamp}_{k}'
         decoder_handler.dataloader_generator.write(tensor_score,
                                                    path_no_extension)
-    # for k, tensor_score in enumerate(original_x):
-    #     path_no_extension = f'{decoder_handler.model_dir}/generations/{timestamp}_{k}_original'
-    #     decoder_handler.dataloader_generator.write(tensor_score,
-    #                                                path_no_extension)
-    # for k, tensor_score in enumerate(x_postprocess):
-    #     path_no_extension = f'{decoder_handler.model_dir}/generations/{timestamp}_{k}_original_postprocess'
-    #     decoder_handler.dataloader_generator.write(tensor_score,
-    #                                                path_no_extension)
+    for k, tensor_score in enumerate(original_x):
+        path_no_extension = f'{decoder_handler.model_dir}/generations/{timestamp}_{k}_original'
+        decoder_handler.dataloader_generator.write(tensor_score,
+                                                   path_no_extension)
+    for k, tensor_score in enumerate(x_postprocess):
+        path_no_extension = f'{decoder_handler.model_dir}/generations/{timestamp}_{k}_original_postprocess'
+        decoder_handler.dataloader_generator.write(tensor_score,
+                                                   path_no_extension)
 
 
 if __name__ == '__main__':
