@@ -204,12 +204,15 @@ def invocations():
                       dim=0).detach().cpu()
 
     # ableton_notes is useful ONLY when done!
+    print('---all_notes_up_so_far')
     ableton_notes, track_duration, _ = tensor_to_ableton(
         new_x,
         start_time=clip_start,
         beats_per_second=beats_per_second,
         rescale=False)
-
+    
+    
+    print('--- New Region')
     ableton_notes_region, _, _ = tensor_to_ableton(
         generated_region[0].detach().cpu(),
         start_time=selected_region['start'],
@@ -221,16 +224,19 @@ def invocations():
 
     after_region = torch.cat([after[0], unused_after[0]],
                              dim=0).detach().cpu()
-
+    
+    print('--- New After')
     ableton_notes_after_region, _, _ = tensor_to_ableton(
         after_region,
-        start_time=region_after_start_time,  # TODO Check!,
+        start_time=region_after_start_time,  
         beats_per_second=beats_per_second)
 
     # Contains unused_before, before, generated_region
     # to be used by next requests
     new_before = torch.cat([unused_before[0], before[0], generated_region[0]],
                            dim=0).detach().cpu()
+    
+    print('--- New before')
     ableton_notes_new_before, _, time_next_note_before = tensor_to_ableton(
         new_before,
         start_time=clip_start,
@@ -245,7 +251,7 @@ def invocations():
     selected_region['start'] = time_next_note_before
 
     # print(f'albeton notes: {ableton_notes}')
-    print(f'region start: {ableton_notes_region}')
+    # print(f'region start: {ableton_notes_region}')
     d = {
         'id': d['id'],
         'notes': ableton_notes,
@@ -270,7 +276,10 @@ def shorten_durations(generated_notes, notes_after):
     # shorten durations if necessary
     # (case when two notes overlap are not well-handled by Ableton)
     # (causes serious issues when generated notes overlap with the region after)
-    d = {}
+    
+    # {pitch: index_in_the_seq_of_the_last_played_pitch}
+    d = {} 
+    
     max_end_time = 0
     for k, note in enumerate(generated_notes):
         pitch = note['pitch']
@@ -280,14 +289,18 @@ def shorten_durations(generated_notes, notes_after):
             
             current_time = note['time']
             previous_note_sounding_end = previous_note['time'] + previous_note['duration']
-            max_end_time = max(max_end_time,
-                               note['time'] + note['duration'])
+
             if previous_note_sounding_end > current_time:
                 previous_note['duration'] = current_time - previous_note['time'] - 1e-2
         
+        max_end_time = max(max_end_time,
+                    note['time'] + note['duration'])
         d[note['pitch']] = k
-    
+        
+    print(f"MAX END TIME: {max_end_time}")
+    print('SHORTENING')
     for k, note in enumerate(notes_after):
+        print(f"time: {note['time']}")
         time = note['time']
         if time > max_end_time:
             break
@@ -298,12 +311,13 @@ def shorten_durations(generated_notes, notes_after):
         pitch = note['pitch']
         
         if pitch in d:            
-            previous_note = generated_notes[d[note['pitch']]]
+            previous_note = generated_notes[d[pitch]]
             
             current_time = note['time']
             previous_note_sounding_end = previous_note['time'] + previous_note['duration']
             if previous_note_sounding_end > current_time:
                 previous_note['duration'] = current_time - previous_note['time'] - 1e-2
+                print(f'Note cut {previous_note}')
             del d[pitch]
         
     return generated_notes    
@@ -514,7 +528,7 @@ def ableton_to_tensor(ableton_note_list,
         region_after_start_time = selected_region['end']
     else:
         # time in beats
-        region_after_start_time = d['time'][event_end]
+        region_after_start_time = d['time'][event_end].item()
         end_time = d['time'][event_end].item()
         
     # if there is at least ONE note before the region
@@ -725,8 +739,8 @@ def tensor_to_ableton(tensor,
     track_duration = time[-1].item() + (notes[-1]['duration'].item() *
                                         rescaling_factor * beats_per_second)
     time_next_note = actual_duration * beats_per_second + start_time
-    
-    print(f'LAST timeshift out {timeshifts[-1]}  {timeshifts[-1]}')
+    print(f'DURATION: {actual_duration}')
+    print(f'LAST timeshift out {timeshifts[-1]}')
     return notes, track_duration, time_next_note
 
 
@@ -811,13 +825,19 @@ def json_to_tensor(notes_before_json,
          torch.tensor([last_time_shift_before])],
         dim=0)
 
+    
+    # same for "after"    
     d_after['time'] = d_after['time'] * seconds_per_beat
     d_after['duration'] = d_after['duration'] * seconds_per_beat
 
     # compute time_shift
-    d_after['time_shift'] = torch.cat(
-        [d_after['time'][1:] - d_after['time'][:-1],
-         torch.zeros(1, )], dim=0)
+    num_notes_after = len(d_after['pitch'])
+    if num_notes_after > 0:
+        d_after['time_shift'] = torch.cat(
+            [d_after['time'][1:] - d_after['time'][:-1],
+            torch.zeros(1, )], dim=0)
+    else:
+        d_after['time_shift'] = torch.tensor([])
 
     # compute placeholder
     # selected region already contains exactly the correct durations
@@ -830,6 +850,7 @@ def json_to_tensor(notes_before_json,
         placeholder_duration=placeholder_duration, batch_size=1)
 
     event_start = len(d_before['time'])
+    
     # delete unnecessary entries in dict
     del d_before['time']
     del d_after['time']
@@ -847,9 +868,6 @@ def json_to_tensor(notes_before_json,
             start_time=event_start - data_processor.num_events_before,
             sequence_size=data_processor.num_events_before)
 
-        if event_start > 0:
-            before['time_shift'][-1] = last_time_shift_before
-
         before = handler.dataloader_generator.dataset.tokenize(before)
         before = {k: torch.LongTensor(t) for k, t in before.items()}
         before = torch.stack(
@@ -862,7 +880,6 @@ def json_to_tensor(notes_before_json,
         before = {k: t.numpy() for k, t in before.items()}
         before = handler.dataloader_generator.dataset.add_start_end_symbols(
             sequence=before, start_time=0, sequence_size=event_start)
-        before['time_shift'][-1] = last_time_shift_before
         before = handler.dataloader_generator.dataset.tokenize(before)
         before = {k: torch.LongTensor(t) for k, t in before.items()}
         before = torch.stack(
@@ -873,8 +890,7 @@ def json_to_tensor(notes_before_json,
         unused_before, before = (before[:-data_processor.num_events_before],
                                  before[-data_processor.num_events_before:])
 
-    # same for "after"
-    num_notes_after = after['pitch'].size(0)
+
 
     # After cannot contain 'START' symbol
     after = {k: t.numpy() for k, t in after.items()}

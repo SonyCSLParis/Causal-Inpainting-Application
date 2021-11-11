@@ -103,8 +103,10 @@ class DecoderEventsHandler(Handler):
 
         # TODO only works with batch_size=1 at present
         assert x.size(0) == 1
-
+        index2value = self.dataloader_generator.dataset.index2value
         decoding_end = None
+        placeholder_duration = metadata_dict['placeholder_duration'].item()
+        generated_duration = 0.
         decoding_start_event = metadata_dict['decoding_start']
         
         # just to be sure we erase the tokens to be generated
@@ -177,6 +179,21 @@ class DecoderEventsHandler(Handler):
                                 features[channel_index]]['END']
                             if end_symbol_index == int(new_pitch_index):
                                 decoding_end = event_index
+                                print('End of decoding due to END symbol generation')
+                                                                
+                            # Additional check:
+                            # if the generated duration is > than the 
+                            # placeholder_duration
+                            # TODO hardcoded channel index for timeshifts
+                            if channel_index == 3:
+                                generated_duration += index2value['time_shift'][new_pitch_index]
+                                if generated_duration > placeholder_duration:
+                                    decoding_end = event_index + 1
+                                    print('End of decoding due to the generation > than placeholder duration')
+                                    print(f'Excess: {generated_duration - placeholder_duration}')
+
+                                    
+                            
 
                     if decoding_end is not None:
                         break
