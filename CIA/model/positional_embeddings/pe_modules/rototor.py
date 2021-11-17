@@ -7,21 +7,20 @@ import numpy as np
 class Rototor(nn.Module):
     def __init__(self, dim, n_heads, fix, init_type):
         super().__init__()
-        if init_type == 'elapsed':
-            log_periods = torch.linspace(start=np.log(
-                0.01), end=np.log(100), steps=dim).float()
-        elif init_type == 'index':
-            log_periods = torch.linspace(start=np.log(
-                1), end=np.log(1024), steps=dim).float()
-        log_periods_heads = torch.stack(n_heads*[log_periods], dim=0)
-        self.log_periods = nn.Parameter(
-            log_periods_heads, requires_grad=(not fix))
+        if init_type == "elapsed":
+            log_periods = torch.linspace(
+                start=np.log(0.01), end=np.log(100), steps=dim
+            ).float()
+        elif init_type == "index":
+            log_periods = torch.linspace(
+                start=np.log(1), end=np.log(1024), steps=dim
+            ).float()
+        log_periods_heads = torch.stack(n_heads * [log_periods], dim=0)
+        self.log_periods = nn.Parameter(log_periods_heads, requires_grad=(not fix))
 
     def forward(self, pe_input, offset):
         batch_size = pe_input.shape[0]
-        periods = torch.stack(batch_size*[
-            torch.exp(self.log_periods)
-        ])
+        periods = torch.stack(batch_size * [torch.exp(self.log_periods)])
         if offset is not None:
             pe_input = pe_input[:, None, :, None] + offset
         else:
