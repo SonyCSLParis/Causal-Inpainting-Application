@@ -1,5 +1,6 @@
 from pathlib import Path
 
+num_events_context = 256
 local_window_size = 64
 config = {
     "dataset": "piano",  # 'piano', 'piano_test'
@@ -11,7 +12,7 @@ config = {
             "velocity_shift": True,
             "transposition": True,
         },
-        offset_beginning=-(local_window_size - 1),
+        offset_beginning=(local_window_size - 1),
         offset_end=-local_window_size,
     ),  # Can be different from the encoder's data loader
     # --- DataProcessor ---
@@ -19,7 +20,7 @@ config = {
     "data_processor_kwargs": dict(
         embedding_size=64,
         num_events_local_window=local_window_size,
-        num_events_end=256,
+        num_events_context=num_events_context,
         reverse_prefix=True,
     ),  # Can be different from the encoder's data processor
     # --- Positional Embedding ---

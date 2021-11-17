@@ -1,4 +1,3 @@
-# TODO: Clean imports (like the handlers' one)
 from CIA.positional_embeddings.sinusoidal_remaining_time_embedding import (
     SinusoidalRemainingTimeEmbedding,
 )
@@ -11,16 +10,12 @@ from CIA.model.causal_events_model_full_cat import CausalEventsModelFullCat
 from torch import nn
 from CIA.model.transformer.performer import Performer_
 from CIA.model.causal_model import CausalModel
-from CIA.dataloaders import BachDataloaderGenerator, PianoDataloaderGenerator
+from CIA.dataloaders import PianoDataloaderGenerator
 from CIA.data_processors import (
-    BachDataProcessor,
     MaskedPianoSourceTargetDataProcessor,
-    PianoDataProcessor,
     PianoPrefixDataProcessor,
     MaskedBachSourceTargetDataProcessor,
-    data_processor,
 )
-from CIA.dataloaders.nes_dataloader import NESDataloader
 from CIA.start_of_sequence_embeddings import (
     SOSEmbedding,
     BaseSOSEmbedding,
@@ -72,7 +67,7 @@ def get_data_processor(
             embedding_size=data_processor_kwargs["embedding_size"],
             num_events=num_events,
             num_events_local_window=data_processor_kwargs["num_events_local_window"],
-            num_events_end=data_processor_kwargs["num_events_end"],
+            num_events_context=data_processor_kwargs["num_events_context"],
             num_tokens_per_channel=num_tokens_per_channel,
             reverse_prefix=data_processor_kwargs["reverse_prefix"],
         )

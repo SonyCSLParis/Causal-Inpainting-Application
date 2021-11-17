@@ -1,102 +1,93 @@
 from pathlib import Path
 
 config = {
-    'training_method':             'decoder',
-    'dataset':                     'piano',  # 'piano', 'piano_test'
-
+    "dataset": "piano",  # 'piano', 'piano_test'
     # --- Dataloader ---
-    'dataloader_generator_kwargs': dict(
+    "dataloader_generator_kwargs": dict(
         sequences_size=1024,
         transformations={
-            'time_dilation':  True,
-            'velocity_shift': True,
-            'transposition':  True
+            "time_dilation": True,
+            "velocity_shift": True,
+            "transposition": True,
         },
         pad_before=True,
     ),  # Can be different from the encoder's data loader
-
     # --- DataProcessor ---
     # can be used to filter out some channels
-    'data_processor_type':         'piano_prefix',
-    'data_processor_kwargs':       dict(
-        embedding_size=64,
-        num_events_before=256,
-        num_events_after=256
+    "data_processor_type": "piano_prefix",
+    "data_processor_kwargs": dict(
+        embedding_size=64, num_events_before=256, num_events_after=256
     ),  # Can be different from the encoder's data processor
-
     # --- Positional Embedding ---
-    'positional_embedding_dict': dict(
+    "positional_embedding_dict": dict(
         sinusoidal_embedding=dict(
             positional_embedding_size=128,
             num_channels=4,
-            dropout=0.,
-            expand_channels=False
+            dropout=0.0,
+            expand_channels=False,
         ),
         sinusoidal_elapsed_time_embedding=dict(
             positional_embedding_size=128,
             num_channels=4,
-            dropout=0.,
+            dropout=0.0,
             mask_positions=False,
-            expand_channels=False
+            expand_channels=False,
         ),
         sinusoidal_progress_bar_embedding=dict(
             positional_embedding_size=128,
             num_channels=4,
-            dropout=0.,
-            expand_channels=False
-        )
+            dropout=0.0,
+            expand_channels=False,
+        ),
     ),
-
     # --- Start Of Sequence embeddings
-    'sos_embedding_dict': dict(
+    "sos_embedding_dict": dict(
         learnt_sos_embedding=dict(
             embedding_size=512  # sum must be equal to d_model_decoder
         )
     ),
     # --- Handler type ---
-    'handler_type': 'event',  # event | channel
-
+    "handler_type": "event",  # event | channel
     # --- Decoder ---
-    'decoder_kwargs': dict(
+    "decoder_kwargs": dict(
         # autoregressive_decoding only needed if handler_type == 'event
-        autoregressive_decoding='fullcat',  # fullcat | mlp | None
-        type='performer',
+        autoregressive_decoding="fullcat",  # fullcat | mlp | None
+        type="performer",
         d_model=512,
         n_head=8,
         local_attn_heads=4,
-        fast_local_attn=False,        
+        fast_local_attn=False,
         # previous "default" values
         # local_window_size=256,
         # num_decoder_layers=16,
-        local_window_size=256, # works with batch_size = 8
+        local_window_size=256,  # works with batch_size = 8
         num_decoder_layers=16,
         dropout=0.1,
         label_smoothing=False,
         features={
-            'type': 'elu',  # 'favor', 'elu', None is Transformer
+            "type": "elu",  # 'favor', 'elu', None is Transformer
             # 'args': dict(n_features=256),  # 'favor args
-            'args': dict(),  # elu args
+            "args": dict(),  # elu args
         },
-        execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' 
+        execute_type="reversible",  # 'reversible' (Reformer paper), 'gated'
         # execute_type='reversible',  # 'reversible' (Reformer paper), 'gated' (Stabilizing T for RL) or 'residual'
         # layer_pe=None
         layer_pe=dict(
-            type='rototor',  # 'rotary', 'spe', 'rototor', 'rototor_fix'
-            input='elapsed',  # 'index', 'elapsed'
+            type="rototor",  # 'rotary', 'spe', 'rototor', 'rototor_fix'
+            input="elapsed",  # 'index', 'elapsed'
             args=dict(
                 gated_layerSPE=False,
                 post_phi_layerPE=True,
                 theta_q=False,
-            )
-        )
+            ),
+        ),
     ),
     # ======== Training ========
-    'lr':                          1e-4,
-    'batch_size':                  16,
-    'num_batches':                 32,
-    'num_epochs':                  1500000,
-
+    "lr": 1e-4,
+    "batch_size": 16,
+    "num_batches": 32,
+    "num_epochs": 1500000,
     # ======== model ID ========
-    'timestamp':                   None,
-    'savename':                    Path(__file__).stem,
+    "timestamp": None,
+    "savename": Path(__file__).stem,
 }
