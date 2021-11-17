@@ -62,7 +62,7 @@ class DecoderEventsHandler(Handler):
             with torch.no_grad():
                 x = tensor_dict["x"]
                 x, metadata_dict = self.data_processor.preprocess(
-                    x, num_events_middle=None
+                    x, num_events_inpainted=None
                 )
 
             # ========Train decoder =============

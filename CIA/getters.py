@@ -1,4 +1,8 @@
 # TODO: Clean imports (like the handlers' one)
+from CIA import data_processors
+from CIA.data_processors.piano_prefixEnd_data_processor import (
+    PianoPrefixEndDataProcessor,
+)
 from CIA.model.transformer.perceiverio import PerceiverIO
 from CIA.model.transformer.catformer import Catformer
 from CIA.model.causal_events_model import CausalEventsModel
@@ -15,6 +19,9 @@ from CIA.data_processors import (
     MaskedBachSourceTargetDataProcessor,
 )
 from CIA.dataloaders.nes_dataloader import NESDataloader
+from CIA.positional_embeddings.sinusoidal_remaining_time_embedding import (
+    SinusoidalRemainingTimeEmbedding,
+)
 from CIA.start_of_sequence_embeddings import (
     SOSEmbedding,
     BaseSOSEmbedding,
@@ -40,7 +47,8 @@ def get_dataloader_generator(dataset, dataloader_generator_kwargs):
         return PianoDataloaderGenerator(
             sequences_size=dataloader_generator_kwargs["sequences_size"],
             transformations=dataloader_generator_kwargs["transformations"],
-            pad_before=dataloader_generator_kwargs["pad_before"],
+            offset_beginning=dataloader_generator_kwargs["offset_beginning"],
+            offset_end=dataloader_generator_kwargs["offset_end"],
             num_elements=None,
         )
     elif dataset.lower() == "piano_test":
@@ -95,9 +103,23 @@ def get_data_processor(
             dataloader_generator=dataloader_generator,
             embedding_size=data_processor_kwargs["embedding_size"],
             num_events=num_events,
-            num_events_before=data_processor_kwargs["num_events_before"],
-            num_events_after=data_processor_kwargs["num_events_after"],
+            num_events_context=data_processor_kwargs["num_events_context"],
             num_tokens_per_channel=num_tokens_per_channel,
+        )
+    elif data_processor_type == "piano_prefixEnd":
+        num_events = dataloader_generator.sequences_size
+        value2index = dataloader_generator.dataset.value2index
+        num_tokens_per_channel = [
+            len(value2index[feature]) for feature in dataloader_generator.features
+        ]
+        data_processor = PianoPrefixEndDataProcessor(
+            dataloader_generator=dataloader_generator,
+            embedding_size=data_processor_kwargs["embedding_size"],
+            num_events=num_events,
+            num_events_local_window=data_processor_kwargs["num_events_local_window"],
+            num_events_context=data_processor_kwargs["num_events_context"],
+            num_tokens_per_channel=num_tokens_per_channel,
+            reverse_prefix=data_processor_kwargs["reverse_prefix"],
         )
     else:
         raise NotImplementedError
@@ -141,7 +163,7 @@ def get_source_target_data_processor(
 
 
 def get_positional_embedding(
-    dataloader_generator, positional_embedding_dict
+    dataloader_generator, data_processor, positional_embedding_dict
 ) -> PositionalEmbedding:
     base_positional_embedding_list = []
     for pe_name, pe_kwargs in positional_embedding_dict.items():
@@ -160,11 +182,19 @@ def get_positional_embedding(
             base_pe = ChannelEmbeddings(**pe_kwargs)
         elif pe_name == "sinusoidal_elapsed_time_embedding":
             base_pe: BasePositionalEmbedding = SinusoidalElapsedTimeEmbedding(
-                dataloader_generator=dataloader_generator, **pe_kwargs
+                dataloader_generator=dataloader_generator,
+                data_processor=data_processor,
+                **pe_kwargs
             )
         elif pe_name == "sinusoidal_progress_bar_embedding":
             base_pe: BasePositionalEmbedding = SinusoidalProgressBarEmbedding(
                 dataloader_generator=dataloader_generator, **pe_kwargs
+            )
+        elif pe_name == "sinusoidal_remaining_time_embedding":
+            base_pe: BasePositionalEmbedding = SinusoidalRemainingTimeEmbedding(
+                dataloader_generator=dataloader_generator,
+                data_processor=data_processor,
+                **pe_kwargs
             )
         else:
             raise NotImplementedError

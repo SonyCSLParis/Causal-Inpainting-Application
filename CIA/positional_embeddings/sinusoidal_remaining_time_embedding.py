@@ -5,14 +5,7 @@ import torch
 import math
 
 
-from CIA.positional_embeddings.positional_embedding import BasePositionalEmbedding
-from torch import nn
-from CIA.utils import flatten
-import torch
-import math
-
-
-class SinusoidalElapsedTimeEmbedding(BasePositionalEmbedding):
+class SinusoidalRemainingTimeEmbedding(BasePositionalEmbedding):
     def __init__(
         self,
         positional_embedding_size,
@@ -21,9 +14,9 @@ class SinusoidalElapsedTimeEmbedding(BasePositionalEmbedding):
         data_processor,
         dropout,
         expand_channels,
-        **kwargs
+        **kwargs,
     ):
-        super(SinusoidalElapsedTimeEmbedding, self).__init__(
+        super(SinusoidalRemainingTimeEmbedding, self).__init__(
             expand_channels=expand_channels
         )
         assert positional_embedding_size % 2 == 0
@@ -40,15 +33,27 @@ class SinusoidalElapsedTimeEmbedding(BasePositionalEmbedding):
 
         # add embedding_dim to elapsed time
         elapsed_time = self.data_processor.compute_elapsed_time(metadata_dict)
-        elapsed_time = elapsed_time.unsqueeze(2)
-        # TODO scale?! only 10?!
-        elapsed_time = elapsed_time * 100
+        remaining_time = metadata_dict["remaining_time"].unsqueeze(1) - elapsed_time
+        # zero remaining_time in prefix
+        decoding_start = metadata_dict["decoding_start"]
+        remaining_time[:, :decoding_start] = 0
+        # make sure negative values are very small and only due to rounding/quantization errors
+        assert torch.all(
+            remaining_time >= -9e-3
+        ), f"negative remaining_time values: {torch.min(remaining_time)}"
+        # zero negative values
+        remaining_time = torch.where(
+            remaining_time < 0.0, torch.zeros_like(remaining_time), remaining_time
+        )
+        remaining_time = remaining_time.unsqueeze(2)
+        # scaling
+        remaining_time = remaining_time * 100
         if self.expand_channels:
-            elapsed_time = elapsed_time.repeat_interleave(self.num_channels, dim=1)
+            remaining_time = remaining_time.repeat_interleave(self.num_channels, dim=1)
         else:
-            elapsed_time = elapsed_time
+            remaining_time = remaining_time
 
-        # sinusoids
+        # sinusoid
         pe = torch.zeros(batch_size, num_events, self.positional_embedding_size)
         pos_embedding = pe.to(device=x_embed.device)
         div_term = torch.exp(
@@ -57,15 +62,14 @@ class SinusoidalElapsedTimeEmbedding(BasePositionalEmbedding):
         )
         div_term = div_term.to(device=x_embed.device)
         div_term = div_term.unsqueeze(0).unsqueeze(0)
-        pos_embedding[:, :, 0::2] = torch.sin(elapsed_time * div_term)
-        pos_embedding[:, :, 1::2] = torch.cos(elapsed_time * div_term)
+        pos_embedding[:, :, 0::2] = torch.sin(remaining_time * div_term)
+        pos_embedding[:, :, 1::2] = torch.cos(remaining_time * div_term)
 
         pos_embedding = self.dropout(pos_embedding)
         x_embed = torch.cat([x_embed, pos_embedding], dim=2)
         return x_embed, None
 
     def forward_step(self, x, i=0, h=None, metadata_dict={}):
-
         if not self.expand_channels:
             raise NotImplementedError
 

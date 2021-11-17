@@ -6,7 +6,7 @@ class BasePositionalEmbedding(nn.Module):
         super().__init__()
         # BasePositionalEmbedding must define
         # positional_embedding_size
-        
+
         self.expand_channels = expand_channels
         # expand_channels is True if the BasePositionalEmbeddings are the one used in PIAv1 (one token is one channel)
 
@@ -27,12 +27,10 @@ class PositionalEmbedding(nn.Module):
 
     def __init__(self, base_positional_embedding_list) -> None:
         super().__init__()
-        self.base_positional_embeddings = nn.ModuleList(
-            base_positional_embedding_list)
-        self.positional_embedding_size = sum([
-            pe.positional_embedding_size
-            for pe in base_positional_embedding_list
-        ])
+        self.base_positional_embeddings = nn.ModuleList(base_positional_embedding_list)
+        self.positional_embedding_size = sum(
+            [pe.positional_embedding_size for pe in base_positional_embedding_list]
+        )
 
     def forward(self, x_embed, i=0, h=None, metadata_dict={}):
         """Concatenates all the simple_positional_embeddings
@@ -52,16 +50,13 @@ class PositionalEmbedding(nn.Module):
             pass
         else:
             if h is None:
-                h = [None] * len(
-                    self.base_positional_embeddings
-                )
+                h = [None] * len(self.base_positional_embeddings)
 
         new_h_list = []
         for positional_embedding, h_pe in zip(self.base_positional_embeddings, h):
-            x_embed, new_h_pe = positional_embedding.forward(x_embed,
-                                                             i=i,
-                                                             h=h_pe,
-                                                             metadata_dict=metadata_dict)
+            x_embed, new_h_pe = positional_embedding.forward(
+                x_embed, i=i, h=h_pe, metadata_dict=metadata_dict
+            )
             new_h_list.append(new_h_pe)
         return x_embed, new_h_list
 
@@ -80,15 +75,12 @@ class PositionalEmbedding(nn.Module):
             pass
         else:
             if h is None:
-                h = [None] * len(
-                    self.base_positional_embeddings
-                )
+                h = [None] * len(self.base_positional_embeddings)
 
         new_h_list = []
         for positional_embedding, h_pe in zip(self.base_positional_embeddings, h):
-            x_embed, new_h_pe = positional_embedding.forward_step(x_embed,
-                                                                  i=i,
-                                                                  h=h_pe,
-                                                                  metadata_dict=metadata_dict)
+            x_embed, new_h_pe = positional_embedding.forward_step(
+                x_embed, i=i, h=h_pe, metadata_dict=metadata_dict
+            )
             new_h_list.append(new_h_pe)
         return x_embed, new_h_list
