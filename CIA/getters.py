@@ -1,5 +1,4 @@
 # TODO: Clean imports (like the handlers' one)
-from CIA import data_processors
 from CIA.data_processors.piano_prefixEnd_data_processor import (
     PianoPrefixEndDataProcessor,
 )
@@ -288,7 +287,13 @@ def get_decoder(
             dataloader_generator=dataloader_generator,
         )
     elif decoder_kwargs["type"] == "perceiverio":
-        transformer = PerceiverIO(dim=512, num_layers=20)
+        transformer = PerceiverIO(
+            dim=decoder_kwargs["d_model"],
+            num_layers=decoder_kwargs["num_decoder_layers"],
+            dropout=decoder_kwargs["dropout"],
+            num_events=num_events_decoder,
+            downscaling=decoder_kwargs["downscaling"],
+        )
     else:
         raise NotImplementedError
 

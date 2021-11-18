@@ -61,32 +61,20 @@ config = {
         autoregressive_decoding="fullcat",  # fullcat | mlp | None
         d_model=512,
         n_head=8,
-        local_attn_heads=4,
-        fast_local_attn=False,
-        local_window_size=local_window_size,  # works with batch_size = 8
-        num_decoder_layers=16,
+        # local_attn_heads=4,
+        # fast_local_attn=False,
+        # local_window_size=local_window_size,  # works with batch_size = 8
+        num_decoder_layers=14,
         dropout=0.1,
+        downscaling=16,
         label_smoothing=False,
-        features={
-            "type": "elu",  # 'favor', 'elu', None is Transformer
-            # 'args': dict(n_features=256),  # 'favor args
-            "args": dict(),  # elu args
-        },
-        execute_type="gated",  # 'reversible' (Reformer paper), 'gated'
-        # layer_pe=None
-        layer_pe=dict(
-            type="rototor",  # 'rotary', 'spe', 'rototor', 'rototor_fix'
-            input="elapsed",  # 'index', 'elapsed'
-            args=dict(
-                gated_layerSPE=False,
-                post_phi_layerPE=True,
-                theta_q=False,
-            ),
-        ),
+        features=None,  # not used for perceiver
+        execute_type=None,  # not used for perceiver
+        layer_pe=None,  # not used for perceiver
     ),
     # ======== Training ========
     "lr": 1e-4,
-    "batch_size": 26,
+    "batch_size": 2,
     "num_batches": 32,
     "num_epochs": 1500000,
     # ======== model ID ========
