@@ -245,9 +245,8 @@ class CausalEventsModelFullCat(nn.Module):
                 label_smoothing=self.label_smoothing,
             )
 
-            num_tokens_prefix = loss_mask_prefix.sum()
-            num_tokens_inpainting = loss_mask_inpainting.sum()
-
+            # num_tokens_prefix = loss_mask_prefix.sum()
+            # num_tokens_inpainting = loss_mask_inpainting.sum()
             # loss = (loss_prefix * num_tokens_prefix + loss_inpainting * num_tokens_inpainting) / \
             #     (num_tokens_prefix + num_tokens_inpainting)
 
