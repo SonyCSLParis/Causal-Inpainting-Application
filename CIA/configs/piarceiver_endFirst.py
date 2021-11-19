@@ -57,13 +57,13 @@ config = {
     "handler_type": "event",  # event | channel
     # --- Decoder ---
     "decoder_kwargs": dict(
-        type="perceiverio",
+        type="perceiver_rw",
         autoregressive_decoding="fullcat",  # fullcat | mlp | None
         d_model=512,
         n_head=8,
         # local_attn_heads=4,
         # fast_local_attn=False,
-        # local_window_size=local_window_size,  # works with batch_size = 8
+        local_window_size=local_window_size,
         num_decoder_layers=14,
         dropout=0.1,
         downscaling=16,
@@ -74,8 +74,8 @@ config = {
     ),
     # ======== Training ========
     "lr": 1e-4,
-    "batch_size": 2,
-    "num_batches": 32,
+    "batch_size": 6,
+    "num_batches": 64,
     "num_epochs": 1500000,
     # ======== model ID ========
     "timestamp": None,
