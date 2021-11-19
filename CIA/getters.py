@@ -3,6 +3,7 @@ from CIA.data_processors.piano_prefixEnd_data_processor import (
     PianoPrefixEndDataProcessor,
 )
 from CIA.model.perceiver.perceiver_rw import PerceiverReadWrite
+from CIA.model.perceiver.perceiver_tower import PerceiverTower
 from CIA.model.transformer.catformer import Catformer
 from CIA.model.causal_events_model import CausalEventsModel
 from CIA.model.causal_events_model_full_cat import CausalEventsModelFullCat
@@ -290,6 +291,17 @@ def get_decoder(
         transformer = PerceiverReadWrite(
             dim=decoder_kwargs["d_model"],
             num_layers=decoder_kwargs["num_decoder_layers"],
+            num_heads=decoder_kwargs["n_head"],
+            dropout=decoder_kwargs["dropout"],
+            local_window_size=decoder_kwargs["local_window_size"],
+            num_events=num_events_decoder,
+            downscaling=decoder_kwargs["downscaling"],
+        )
+    elif decoder_kwargs["type"] == "perceiver_tower":
+        transformer = PerceiverTower(
+            dim=decoder_kwargs["d_model"],
+            num_layers=decoder_kwargs["num_decoder_layers"],
+            tower_depth=decoder_kwargs["tower_depth"],
             num_heads=decoder_kwargs["n_head"],
             dropout=decoder_kwargs["dropout"],
             local_window_size=decoder_kwargs["local_window_size"],
