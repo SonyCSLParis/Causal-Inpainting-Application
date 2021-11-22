@@ -82,8 +82,7 @@ class Handler:
             torch.save(self.model.state_dict(), f"{model_dir}/model")
         dist.barrier()
 
-    def load(self, early_stopped):
-        map_location = {"cuda:0": f"cuda:{dist.get_rank()}"}
+    def load(self, early_stopped, device):
         print(f"Loading models {self.__repr__()}")
         if early_stopped:
             print("Load early stopped model")
@@ -92,8 +91,13 @@ class Handler:
             print("Load over-fitted model")
             model_dir = f"{self.model_dir}/overfitted"
 
-        state_dict = torch.load(f"{model_dir}/model", map_location=map_location)
-
+        if device != "cpu":
+            map_location = {"cuda:0": f"cuda:{dist.get_rank()}"}
+            state_dict = torch.load(f"{model_dir}/model", map_location=map_location)
+        else:
+            state_dict = torch.load(
+                f"{model_dir}/model", map_location=torch.device("cpu")
+            )
         self.model.load_state_dict(state_dict=state_dict)
 
     def plot(

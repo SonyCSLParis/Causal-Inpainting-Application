@@ -43,7 +43,7 @@ def launcher(train, load, overfitted, config, num_workers):
         world_size = torch.cuda.device_count()
         assert world_size > 0
     else:
-        # only use 1 GPU for inference
+        # only use 1 GPU for inference or CPU
         world_size = 1
 
     # Load config as dict
@@ -71,31 +71,26 @@ def launcher(train, load, overfitted, config, num_workers):
         shutil.copy(config_path, f"{model_dir}/config.py")
 
     print(f"Using {world_size} GPUs")
-    if torch.cuda.is_available():
-        mp.spawn(
-            main,
-            args=(train, load, overfitted, config, num_workers, world_size, model_dir),
-            nprocs=world_size,
-            join=True,
-        )
-    else:
-        main(
-            train,
-            load,
-            overfitted,
-            config,
-            num_workers,
-            world_size=None,
-            model_dir=model_dir,
-        )
+    mp.spawn(
+        main,
+        args=(train, load, overfitted, config, num_workers, world_size, model_dir),
+        nprocs=world_size,
+        join=True,
+    )
 
 
 def main(rank, train, load, overfitted, config, num_workers, world_size, model_dir):
-    if world_size is not None:
+    if torch.cuda.is_available():
         dist.init_process_group(backend="nccl", world_size=world_size, rank=rank)
         torch.cuda.set_device(rank)
+        device_ids = [rank]
+        output_device = rank
         device = f"cuda:{rank}"
     else:
+        # cpu case
+        dist.init_process_group(backend="gloo", world_size=world_size, rank=rank)
+        device_ids = None
+        output_device = None
         device = "cpu"
 
     # === Decoder ====
@@ -137,7 +132,7 @@ def main(rank, train, load, overfitted, config, num_workers, world_size, model_d
 
     decoder.to(device)
     decoder = DistributedDataParallel(
-        module=decoder, device_ids=[rank], output_device=rank
+        module=decoder, device_ids=device_ids, output_device=output_device
     )
 
     decoder_handler = get_handler(
@@ -149,9 +144,9 @@ def main(rank, train, load, overfitted, config, num_workers, world_size, model_d
 
     if load:
         if overfitted:
-            decoder_handler.load(early_stopped=False)
+            decoder_handler.load(early_stopped=False, device=device)
         else:
-            decoder_handler.load(early_stopped=True)
+            decoder_handler.load(early_stopped=True, device=device)
 
     if train:
         decoder_handler.train_model(
