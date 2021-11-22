@@ -2,7 +2,6 @@
 @author: Gaetan Hadjeres
 """
 from CIA.utils import get_free_port
-from CIA.handlers import DecoderPrefixHandler
 from CIA.positional_embeddings.positional_embedding import PositionalEmbedding
 import importlib
 import os
@@ -72,18 +71,32 @@ def launcher(train, load, overfitted, config, num_workers):
         shutil.copy(config_path, f"{model_dir}/config.py")
 
     print(f"Using {world_size} GPUs")
-    mp.spawn(
-        main,
-        args=(train, load, overfitted, config, num_workers, world_size, model_dir),
-        nprocs=world_size,
-        join=True,
-    )
+    if torch.cuda.is_available():
+        mp.spawn(
+            main,
+            args=(train, load, overfitted, config, num_workers, world_size, model_dir),
+            nprocs=world_size,
+            join=True,
+        )
+    else:
+        main(
+            train,
+            load,
+            overfitted,
+            config,
+            num_workers,
+            world_size=None,
+            model_dir=model_dir,
+        )
 
 
 def main(rank, train, load, overfitted, config, num_workers, world_size, model_dir):
-    dist.init_process_group(backend="nccl", world_size=world_size, rank=rank)
-    torch.cuda.set_device(rank)
-    device = f"cuda:{rank}"
+    if world_size is not None:
+        dist.init_process_group(backend="nccl", world_size=world_size, rank=rank)
+        torch.cuda.set_device(rank)
+        device = f"cuda:{rank}"
+    else:
+        device = "cpu"
 
     # === Decoder ====
     # dataloader generator
@@ -161,10 +174,12 @@ def main(rank, train, load, overfitted, config, num_workers, world_size, model_d
 
     if exemple is None:  # use dataloader
         (_, generator_val, _) = dataloader_generator.dataloaders(
-            batch_size=1, num_workers=num_workers, shuffle_val=True
+            batch_size=1, shuffle_val=True
         )
         original_x = next(generator_val)["x"]
-        x, metadata_dict = data_processor.preprocess(original_x, num_events_middle=None)
+        x, metadata_dict = data_processor.preprocess(
+            original_x, num_events_inpainted=None
+        )
     else:
         # read midi file
         x = dataloader_generator.dataset.process_score(exemple["path"])

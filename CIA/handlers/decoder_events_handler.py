@@ -126,7 +126,7 @@ class DecoderEventsHandler(Handler):
 
                 # output is used to generate auto-regressively all
                 # channels of an event
-                output, target_embedded, h_pe = self.compute_event_state(
+                output, target_embedded, _ = self.compute_event_state(
                     target=x,
                     metadata_dict=metadata_dict,
                 )
