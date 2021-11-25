@@ -8,3 +8,4 @@ models/
 .vscode/
 *.pyc
 workspace.code-workspace
+.DS_Store
