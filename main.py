@@ -166,83 +166,92 @@ def main(rank, train, load, overfitted, config, num_workers, world_size, model_d
     # exemple = dict(path='/home/leo/Data/databases/Piano/ecomp_piano_dataset/Abdelmola01.MID', num_events_middle=500,
     #                start=0)
     exemple = None
+    num_generations = 5
 
-    if exemple is None:  # use dataloader
-        (_, generator_val, _) = dataloader_generator.dataloaders(
-            batch_size=1, shuffle_val=True
-        )
-        original_x = next(generator_val)["x"]
-        x, metadata_dict = data_processor.preprocess(
-            original_x, num_events_inpainted=None
-        )
-    else:
-        # read midi file
-        x = dataloader_generator.dataset.process_score(exemple["path"])
-        # add pad, start and end symbols
-        x = dataloader_generator.dataset.add_start_end_symbols(
-            x,
-            start_time=exemple["start"],
-            sequence_size=dataloader_generator.sequences_size,
-        )
-        # tokenize
-        x = dataloader_generator.dataset.tokenize(x)
-        # to torch tensor
-        original_x = torch.stack(
-            [torch.tensor(x[e]).long() for e in dataloader_generator.features], dim=-1
-        ).unsqueeze(0)
-        # preprocess
-        x, metadata_dict = data_processor.preprocess(
-            original_x, num_events_middle=exemple["num_events_middle"]
+    for _ in range(num_generations):
+        if exemple is None:  # use dataloader
+            (_, generator_val, _) = dataloader_generator.dataloaders(
+                batch_size=1, shuffle_val=True
+            )
+            original_x = next(generator_val)["x"]
+            x, metadata_dict = data_processor.preprocess(
+                original_x, num_events_inpainted=None
+            )
+        else:
+            # read midi file
+            x = dataloader_generator.dataset.process_score(exemple["path"])
+            # add pad, start and end symbols
+            x = dataloader_generator.dataset.add_start_end_symbols(
+                x,
+                start_time=exemple["start"],
+                sequence_size=dataloader_generator.sequences_size,
+            )
+            # tokenize
+            x = dataloader_generator.dataset.tokenize(x)
+            # to torch tensor
+            original_x = torch.stack(
+                [torch.tensor(x[e]).long() for e in dataloader_generator.features],
+                dim=-1,
+            ).unsqueeze(0)
+            # preprocess
+            x, metadata_dict = data_processor.preprocess(
+                original_x, num_events_middle=exemple["num_events_middle"]
+            )
+
+        # reconstruct original sequence to check post-processing
+        x_postprocess = data_processor.postprocess(
+            x, decoding_end=metadata_dict["decoding_end"], metadata_dict=metadata_dict
         )
 
-    # reconstruct original sequence to check post-processing
-    # x_postprocess = data_processor.postprocess(
-    #     x, decoding_end=metadata_dict['decoding_end'], metadata_dict=metadata_dict)
-
-    ############################################################
-    # inpainting
-    # start_time = time.time()
-    # x_gen, generated_region, decoding_end, num_event_generated, done = decoder_handler.inpaint(
-    #     x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
-    # end_time = time.time()
-    ############################################################
-    start_time = time.time()
-    (
-        x_gen,
-        generated_region,
-        decoding_end,
-        num_event_generated,
-        done,
-    ) = decoder_handler.inpaint_non_optimized(
-        x=x.clone(), metadata_dict=metadata_dict, temperature=1.0, top_p=0.95, top_k=0
-    )
-    end_time = time.time()
-    ############################################################
-    x_inpainted = data_processor.postprocess(x_gen, decoding_end, metadata_dict)
-
-    # Timing infos
-    print(f"Num events_generated: {num_event_generated}")
-    print(f"Time generation: {end_time - start_time}")
-    print(
-        f"Average time per generated event: {(end_time - start_time) / num_event_generated}"
-    )
-
-    # Saving
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-    if not os.path.exists(f"{decoder_handler.model_dir}/generations"):
-        os.mkdir(f"{decoder_handler.model_dir}/generations")
-    for k, tensor_score in enumerate(x_inpainted):
-        path_no_extension = f"{decoder_handler.model_dir}/generations/{timestamp}_{k}"
-        decoder_handler.dataloader_generator.write(tensor_score, path_no_extension)
-    for k, tensor_score in enumerate(original_x):
-        path_no_extension = (
-            f"{decoder_handler.model_dir}/generations/{timestamp}_{k}_original"
+        ############################################################
+        # inpainting
+        # start_time = time.time()
+        # x_gen, generated_region, decoding_end, num_event_generated, done = decoder_handler.inpaint(
+        #     x=x.clone(), metadata_dict=metadata_dict, temperature=1., top_p=0.95, top_k=0)
+        # end_time = time.time()
+        ############################################################
+        start_time = time.time()
+        (
+            x_gen,
+            generated_region,
+            decoding_end,
+            num_event_generated,
+            done,
+        ) = decoder_handler.inpaint_non_optimized(
+            x=x.clone(),
+            metadata_dict=metadata_dict,
+            temperature=1.0,
+            top_p=0.95,
+            top_k=0,
         )
-        decoder_handler.dataloader_generator.write(tensor_score, path_no_extension)
-    # for k, tensor_score in enumerate(x_postprocess):
-    #     path_no_extension = f'{decoder_handler.model_dir}/generations/{timestamp}_{k}_original_postprocess'
-    #     decoder_handler.dataloader_generator.write(tensor_score,
-    #                                                path_no_extension)
+        end_time = time.time()
+        ############################################################
+        x_inpainted = data_processor.postprocess(x_gen, decoding_end, metadata_dict)
+
+        # Timing infos
+        print(f"Num events_generated: {num_event_generated}")
+        print(f"Time generation: {end_time - start_time}")
+        print(
+            f"Average time per generated event: {(end_time - start_time) / num_event_generated}"
+        )
+
+        # Saving
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+        if not os.path.exists(f"{decoder_handler.model_dir}/generations"):
+            os.mkdir(f"{decoder_handler.model_dir}/generations")
+        for k, tensor_score in enumerate(x_inpainted):
+            path_no_extension = (
+                f"{decoder_handler.model_dir}/generations/{timestamp}_{k}"
+            )
+            decoder_handler.dataloader_generator.write(tensor_score, path_no_extension)
+        for k, tensor_score in enumerate(original_x):
+            path_no_extension = (
+                f"{decoder_handler.model_dir}/generations/{timestamp}_{k}_original"
+            )
+            decoder_handler.dataloader_generator.write(tensor_score, path_no_extension)
+        for k, tensor_score in enumerate(x_postprocess):
+            path_no_extension = f"{decoder_handler.model_dir}/generations/{timestamp}_{k}_original_postprocess"
+            decoder_handler.dataloader_generator.write(tensor_score, path_no_extension)
 
 
 if __name__ == "__main__":
