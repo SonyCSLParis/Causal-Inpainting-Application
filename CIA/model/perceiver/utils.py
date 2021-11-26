@@ -25,9 +25,13 @@ class ScalingAttention(nn.Module):
         if num_tok_q > num_tok_kv:
             assert num_tok_q == num_tok_kv * self.downscaling
             upscaled_dim = 0
+            num_token_downscaled = num_tok_kv
         elif num_tok_kv > num_tok_q:
             assert num_tok_kv == num_tok_q * self.downscaling
             upscaled_dim = 1
+            num_token_downscaled = num_tok_q
+        else:
+            num_token_downscaled = num_tok_q
         q = self.to_q(q)
         k = self.to_k(kv)
         v = self.to_v(kv)
@@ -35,9 +39,10 @@ class ScalingAttention(nn.Module):
             lambda t: rearrange(t, "b n (h d) -> b h n d", h=self.num_heads), (q, k, v)
         )
         qk = torch.einsum("bhid,bhjd->bhij", q, k) * (dim ** -0.5)
-        causal_mask = torch.triu(-float("inf") * torch.ones(dim, dim), diagonal=1).to(
-            qk.device
-        )
+        causal_mask = torch.triu(
+            -float("inf") * torch.ones(num_token_downscaled, num_token_downscaled),
+            diagonal=1,
+        ).to(qk.device)
         if self.downscaling > 1:
             causal_mask = causal_mask.repeat_interleave(
                 self.downscaling, dim=upscaled_dim
