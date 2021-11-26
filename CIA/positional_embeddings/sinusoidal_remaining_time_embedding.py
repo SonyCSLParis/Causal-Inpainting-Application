@@ -34,6 +34,7 @@ class SinusoidalRemainingTimeEmbedding(BasePositionalEmbedding):
         # add embedding_dim to elapsed time
         elapsed_time = self.data_processor.compute_elapsed_time(metadata_dict)
         remaining_time = metadata_dict["remaining_time"].unsqueeze(1) - elapsed_time
+        ################################################
         # zero remaining_time in prefix
         decoding_start = metadata_dict["decoding_start"]
         remaining_time[:, :decoding_start] = 0
@@ -45,6 +46,7 @@ class SinusoidalRemainingTimeEmbedding(BasePositionalEmbedding):
         remaining_time = torch.where(
             remaining_time < 0.0, torch.zeros_like(remaining_time), remaining_time
         )
+        ################################################
         remaining_time = remaining_time.unsqueeze(2)
         # scaling
         remaining_time = remaining_time * 100

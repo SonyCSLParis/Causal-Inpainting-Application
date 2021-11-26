@@ -380,7 +380,10 @@ class PianoPrefixEndDataProcessor(DataProcessor):
         if contains_end_token:
             end_token_location = torch.argmax(is_end_token.long(), dim=1)
         else:
-            raise Exception("no or more than 1 END token generated in suffix")
+            if is_end_token.sum(1) > 1:
+                raise Exception("more than 1 END token generated in suffix")
+            else:
+                raise Exception("no END token generated in suffix")
         before = before[:end_token_location]
 
         # trim start

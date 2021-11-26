@@ -57,17 +57,17 @@ config = {
     "handler_type": "event",  # event | channel
     # --- Decoder ---
     "decoder_kwargs": dict(
-        type="perceiver_tower",
+        type="perceiver_rw",
         autoregressive_decoding="fullcat",  # fullcat | mlp | None
         d_model=512,
         n_head=8,
         # local_attn_heads=4,
         # fast_local_attn=False,
         local_window_size=local_window_size,
-        num_decoder_layers=4,
-        tower_depth=8,
+        num_decoder_layers=14,
+        # tower_depth=6,
         dropout=0.1,
-        downscaling=16,
+        downscaling=local_window_size,
         label_smoothing=False,
         features=None,  # not used for perceiver
         execute_type=None,  # not used for perceiver
