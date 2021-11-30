@@ -10,7 +10,7 @@ class Perceiver(nn.Module):
         self.read = self._get_read()
         self.process_x = self._get_process_x()
         self.process_l = self._get_process_l()
-        self.last_layer_norm = nn.LayerNorm(dim)
+        self.last_layer_norm = self._get_last_layer_norm()
 
     def forward(self, x, **kwargs):
         batch_size, _, _ = x.size()

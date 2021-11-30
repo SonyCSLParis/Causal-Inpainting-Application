@@ -44,6 +44,7 @@ class DecoderEventsHandler(Handler):
         data_loader,
         train=True,
         num_batches=None,
+        compute_loss_prefix=True,
     ):
         means = None
 
@@ -67,7 +68,11 @@ class DecoderEventsHandler(Handler):
 
             # ========Train decoder =============
             self.optimizer.zero_grad()
-            forward_pass = self.forward(target=x, metadata_dict=metadata_dict)
+            forward_pass = self.forward(
+                target=x,
+                metadata_dict=metadata_dict,
+                compute_loss_prefix=compute_loss_prefix,
+            )
             loss = forward_pass["loss"]
             # h_pe_init = forward_pass['h_pe'].detach()
 

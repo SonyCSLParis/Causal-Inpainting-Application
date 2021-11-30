@@ -3,6 +3,7 @@ from CIA.data_processors.piano_prefixEnd_data_processor import (
     PianoPrefixEndDataProcessor,
 )
 from CIA.model.perceiver.perceiver_rw import PerceiverReadWrite
+from CIA.model.perceiver.perceiver_stack import PerceiverStack
 from CIA.model.perceiver.perceiver_tower import PerceiverTower
 from CIA.model.transformer.catformer import Catformer
 from CIA.model.causal_events_model import CausalEventsModel
@@ -296,6 +297,24 @@ def get_decoder(
             local_window_size=decoder_kwargs["local_window_size"],
             num_events=num_events_decoder,
             downscaling=decoder_kwargs["downscaling"],
+        )
+    elif decoder_kwargs["type"] == "perceiver_stack":
+        num_events_decoder_layer = num_events_decoder
+        num_events_decoder_l = []
+        local_window_size_l = []
+        for downscaling in decoder_kwargs["downscaling_l"]:
+            num_events_decoder_l.append(num_events_decoder_layer)
+            local_window_size_l.append(downscaling)
+            assert num_events_decoder_layer % downscaling == 0
+            num_events_decoder_layer = num_events_decoder_layer // downscaling
+        transformer = PerceiverStack(
+            dim=decoder_kwargs["d_model"],
+            num_layers=decoder_kwargs["num_decoder_layers"],
+            num_heads=decoder_kwargs["n_head"],
+            dropout=decoder_kwargs["dropout"],
+            local_window_size_l=local_window_size_l,
+            num_events_l=num_events_decoder_l,
+            downscaling_l=decoder_kwargs["downscaling_l"],
         )
     elif decoder_kwargs["type"] == "perceiver_tower":
         transformer = PerceiverTower(

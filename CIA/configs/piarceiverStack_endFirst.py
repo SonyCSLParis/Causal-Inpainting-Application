@@ -62,13 +62,16 @@ config = {
         autoregressive_decoding="fullcat",  # fullcat | mlp | None
         d_model=512,
         n_head=8,
-        # local_attn_heads=4,
-        # fast_local_attn=False,
-        num_decoder_layers=14,
-        # tower_depth=6,
+        num_decoder_layers=8,
         dropout=0.1,
-        downscaling=local_window_size,
-        local_window_size=local_window_size,
+        downscaling_l=[
+            downscale,
+            downscale,
+        ],
+        local_window_size_l=[
+            downscale,
+            downscale,
+        ],
         label_smoothing=False,
         features=None,  # not used for perceiver
         execute_type=None,  # not used for perceiver
@@ -76,7 +79,7 @@ config = {
     ),
     # ======== Training ========
     "lr": 1e-4,
-    "batch_size": 6,
+    "batch_size": 4,
     "num_batches": 64,
     "num_epochs": 1500000,
     "compute_loss_prefix": True,

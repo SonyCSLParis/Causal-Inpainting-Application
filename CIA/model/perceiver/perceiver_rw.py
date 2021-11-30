@@ -3,7 +3,6 @@ import math
 import torch
 import torch.nn as nn
 from CIA.model.causal_events_model_full_cat import GEGLU
-from einops.einops import rearrange
 from performer_pytorch.performer_pytorch import SelfAttention
 
 from CIA.model.perceiver.perceiver import Perceiver
@@ -34,6 +33,10 @@ class PerceiverReadWrite(Perceiver):
         super(PerceiverReadWrite, self).__init__(dim=dim)
 
     # def forward(self, x, **kwargs):
+
+    def _get_last_layer_norm(self):
+        return nn.LayerNorm(self.dim)
+
     def _get_latents_init(self):
         # which init?
         latents_init = torch.zeros(self.num_events_latent, self.latent_dim)

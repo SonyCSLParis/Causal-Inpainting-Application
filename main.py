@@ -156,6 +156,7 @@ def main(rank, train, load, overfitted, config, num_workers, world_size, model_d
             lr=config["lr"],
             plot=True,
             num_workers=num_workers,
+            compute_loss_prefix=config["compute_loss_prefix"],
         )
         exit()
 

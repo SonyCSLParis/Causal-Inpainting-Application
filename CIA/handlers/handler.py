@@ -28,8 +28,8 @@ class Handler:
         )
 
     # ==== Wrappers
-    def forward(self, target, metadata_dict):
-        return self.model.forward(target, metadata_dict)
+    def forward(self, target, metadata_dict, compute_loss_prefix):
+        return self.model.forward(target, metadata_dict, compute_loss_prefix)
 
     def forward_step(self, target, metadata_dict, decoding_index):
         return self.model.module.forward_step(target, metadata_dict, decoding_index)
@@ -117,6 +117,7 @@ class Handler:
         lr=1e-3,
         plot=False,
         num_workers=0,
+        compute_loss_prefix=False,
         **kwargs,
     ):
         if plot and is_main_process():
@@ -137,6 +138,7 @@ class Handler:
                 data_loader=generator_train,
                 train=True,
                 num_batches=num_batches,
+                compute_loss_prefix=compute_loss_prefix,
             )
             del generator_train
 
@@ -145,6 +147,7 @@ class Handler:
                     data_loader=generator_val,
                     train=False,
                     num_batches=num_batches // 2 if num_batches is not None else None,
+                    compute_loss_prefix=compute_loss_prefix,
                 )
                 del generator_val
             valid_loss = monitored_quantities_val["loss"]

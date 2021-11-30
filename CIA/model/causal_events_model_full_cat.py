@@ -196,7 +196,7 @@ class CausalEventsModelFullCat(nn.Module):
 
         return output, target_embedded, h_pe
 
-    def forward(self, target, metadata_dict, h_pe_init=None):
+    def forward(self, target, metadata_dict, compute_loss_prefix, h_pe_init=None):
         """
         :param target: sequence of tokens (batch_size, num_events, num_channels)
         :return:
@@ -221,17 +221,19 @@ class CausalEventsModelFullCat(nn.Module):
         # If prefix mode, we keep track of the two separate losses
         if "decoding_start" in metadata_dict:
             decoding_start = metadata_dict["decoding_start"]
-            weights_prefix = [
-                weight[:, :decoding_start] for weight in weights_per_category
-            ]
-            target_prefix = target[:, :decoding_start]
-            loss_mask_prefix = loss_mask[:, :decoding_start]
-            loss_prefix = categorical_crossentropy(
-                value=weights_prefix,
-                target=target_prefix,
-                mask=loss_mask_prefix,
-                label_smoothing=self.label_smoothing,
-            )
+
+            if compute_loss_prefix:
+                weights_prefix = [
+                    weight[:, :decoding_start] for weight in weights_per_category
+                ]
+                target_prefix = target[:, :decoding_start]
+                loss_mask_prefix = loss_mask[:, :decoding_start]
+                loss_prefix = categorical_crossentropy(
+                    value=weights_prefix,
+                    target=target_prefix,
+                    mask=loss_mask_prefix,
+                    label_smoothing=self.label_smoothing,
+                )
 
             weights_inpainting = [
                 weight[:, decoding_start:] for weight in weights_per_category
@@ -245,14 +247,11 @@ class CausalEventsModelFullCat(nn.Module):
                 label_smoothing=self.label_smoothing,
             )
 
-            # num_tokens_prefix = loss_mask_prefix.sum()
-            # num_tokens_inpainting = loss_mask_inpainting.sum()
-            # loss = (loss_prefix * num_tokens_prefix + loss_inpainting * num_tokens_inpainting) / \
-            #     (num_tokens_prefix + num_tokens_inpainting)
-
-            # TODO WARNING hardcoded values:
-            # different weighting for finetuning
-            loss = loss_prefix * 0.1 + loss_inpainting * 0.9
+            if compute_loss_prefix:
+                loss = loss_prefix * 0.1 + loss_inpainting * 0.9
+            else:
+                loss = loss_inpainting
+                loss_prefix = torch.zeros_like(loss)
 
             return {
                 "loss": loss,
