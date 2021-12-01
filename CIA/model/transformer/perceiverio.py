@@ -602,15 +602,7 @@ class QKV_Read(nn.Module):
 
 #         # self.l_init = nn.Parameter(torch.randn(1, 1024, 512))
 
-#         self.write = nn.ModuleList([
-#             QKV_Write(dim,
-#                       num_heads=8,
-#                       downscaling=self.downscaling,
-#                       hidden_dim=dim,
-#                       dropout=dropout) for _ in range(num_layers)
-#         ])
-#         self.read = nn.ModuleList([
-#             QKV_Read(dim,
+#         self.write = nn.ModuleList([s replaced (no residual)
 #                      num_heads=8,
 #                      downscaling=self.downscaling,
 #                      hidden_dim=dim,
@@ -778,6 +770,8 @@ class PerceiverIO(nn.Module):
                           local_heads=8,
                           heads=8,
                           causal=True,
+                          # local window should be equal to downscaling for
+                          # ric-rac transformer
                           local_window_size=64,
                           dropout=dropout) for _ in range(num_layers)
         ])
