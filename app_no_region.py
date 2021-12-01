@@ -157,6 +157,7 @@ def invocations():
     selected_region = d['selected_region']
     if 'clip_start' not in d:
         clip_start = selected_region['start']
+        d['clip_start'] = clip_start
     else:
         clip_start = d['clip_start']
     print(selected_region, clip_start)
@@ -538,8 +539,13 @@ def ableton_to_tensor(ableton_note_list,
         regenerate_first_ts = True
         event_start = event_start - 1
         start_time = d['time'][event_start].item()
+        clip_start = d['time'][0].item() # in beats still
     else:
+        # If no notes before, start_time also defines the clip_start as
+        # clip_start is incorrect
         regenerate_first_ts = False
+        clip_start = start_time
+        
         
     # update selected region with the newly computed region
     selected_region['end'] = end_time
