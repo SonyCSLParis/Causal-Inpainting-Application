@@ -192,6 +192,21 @@ class DecoderEventsHandler(Handler):
                                 ]
                                 if generated_duration > placeholder_duration:
                                     decoding_end = event_index + 1
+                                    for channel_index_local in range(
+                                        self.num_channels_target
+                                    ):
+                                        end_symbol_index = self.dataloader_generator.dataset.value2index[
+                                            self.dataloader_generator.features[
+                                                channel_index_local
+                                            ]
+                                        ][
+                                            "END"
+                                        ]
+                                        x[
+                                            batch_index,
+                                            decoding_end,
+                                            channel_index_local,
+                                        ] = int(end_symbol_index)
                                     print(
                                         "End of decoding due to the generation > than placeholder duration"
                                     )
@@ -205,6 +220,17 @@ class DecoderEventsHandler(Handler):
                 if decoding_end is not None:
                     break
             if decoding_end is None:
+                # replace last event by an end event
+                for batch_index in range(batch_size):
+                    for channel_index in range(self.num_channels_target):
+                        end_symbol_index = (
+                            self.dataloader_generator.dataset.value2index[
+                                self.dataloader_generator.features[channel_index]
+                            ]["END"]
+                        )
+                        x[batch_index, event_index, channel_index] = int(
+                            end_symbol_index
+                        )
                 done = False
                 decoding_end = num_events
             else:

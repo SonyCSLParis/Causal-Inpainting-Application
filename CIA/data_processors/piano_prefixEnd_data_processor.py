@@ -338,14 +338,13 @@ class PianoPrefixEndDataProcessor(DataProcessor):
         return y, metadata_dict
 
     def compute_elapsed_time(self, metadata_dict):
-        # Original sequence is in prefix order!
+        # original sequence is in prefix order!
         x = metadata_dict["original_sequence"]
         elapsed_time = self.dataloader_generator.get_elapsed_time(x)
-        # add zero
+        # shift to right so that elapsed_time[0] = 0
         elapsed_time = torch.cat(
             [torch.zeros_like(elapsed_time)[:, :1], elapsed_time[:, :-1]], dim=1
         )
-
         # offset prefix
         elapsed_time[:, : self.num_events_context] = elapsed_time[
             :, : self.num_events_context
@@ -356,13 +355,11 @@ class PianoPrefixEndDataProcessor(DataProcessor):
                 elapsed_time[:, self.num_events_context - 1].unsqueeze(1)
                 - elapsed_time[:, : self.num_events_context]
             )
-
         # offset suffix
         elapsed_time[:, self.num_events_context :] = (
             elapsed_time[:, self.num_events_context :]
             - elapsed_time[:, self.num_events_context + 1 : self.num_events_context + 2]
         )
-
         # assert not negative elapsed time
         assert torch.all(elapsed_time >= -9e-3), "Negative elapsed time"
 
