@@ -1,6 +1,6 @@
 from pathlib import Path
 
-local_window_size = 64
+known_suffix_length = 64
 downscale = 16
 num_events_context = 256
 config = {
@@ -14,15 +14,15 @@ config = {
             "velocity_shift": True,
             "transposition": True,
         },
-        offset_beginning=-(local_window_size - 1),
-        offset_end=-local_window_size,
+        offset_beginning=-(known_suffix_length - 1),
+        offset_end=-known_suffix_length,
     ),  # Can be different from the encoder's data loader
     # --- DataProcessor ---
     # can be used to filter out some channels
     "data_processor_type": "piano_prefixEnd",
     "data_processor_kwargs": dict(
         embedding_size=64,
-        num_events_local_window=local_window_size,
+        num_events_local_window=known_suffix_length,
         num_events_context=num_events_context,
         reverse_prefix=False,  # only for prefixEnd
     ),  # Can be different from the encoder's data processor
@@ -62,15 +62,15 @@ config = {
         autoregressive_decoding="fullcat",  # fullcat | mlp | None
         d_model=512,
         n_head=8,
-        num_decoder_layers=8,
+        num_decoder_layers=12,
         dropout=0.1,
         downscaling_l=[
             downscale,
             downscale,
         ],
         local_window_size_l=[
-            downscale,
-            downscale,
+            2 * downscale,
+            2 * downscale,
         ],
         label_smoothing=False,
         features=None,  # not used for perceiver
@@ -79,7 +79,7 @@ config = {
     ),
     # ======== Training ========
     "lr": 1e-4,
-    "batch_size": 4,
+    "batch_size": 7,
     "num_batches": 64,
     "num_epochs": 1500000,
     "compute_loss_prefix": True,

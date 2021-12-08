@@ -36,8 +36,7 @@ class SinusoidalRemainingTimeEmbedding(BasePositionalEmbedding):
         remaining_time = metadata_dict["remaining_time"].unsqueeze(1) - elapsed_time
         ################################################
         # zero remaining_time in prefix
-        decoding_start = metadata_dict["decoding_start"]
-        remaining_time[:, :decoding_start] = 0
+        remaining_time[:, : self.data_processor.num_events_context] = 0
         # make sure negative values are very small and only due to rounding/quantization errors
         assert torch.all(
             remaining_time >= -9e-3
