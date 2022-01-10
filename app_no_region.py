@@ -28,7 +28,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 from CIA.getters import get_data_processor, get_dataloader_generator, get_decoder, get_handler, get_sos_embedding, get_positional_embedding
 
-DEBUG = False
+DEBUG = True
 
 
 @click.command()
