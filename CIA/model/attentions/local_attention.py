@@ -1,4 +1,11 @@
-from local_attention.local_attention import TOKEN_SELF_ATTN_VALUE, expand_dim, look_around, max_neg_value, merge_dims, pad_to_multiple
+from local_attention.local_attention import (
+    TOKEN_SELF_ATTN_VALUE,
+    expand_dim,
+    look_around,
+    max_neg_value,
+    merge_dims,
+    pad_to_multiple,
+)
 from performer_pytorch.performer_pytorch import default
 from torch import nn
 import torch
@@ -6,13 +13,7 @@ import torch.nn.functional as F
 
 
 class LocalAttention_(nn.Module):
-    def __init__(
-        self,
-        window_size,
-        dropout=0.,
-        autopad=False,
-        exact_windowsize=False
-    ):
+    def __init__(self, window_size, dropout=0.0, autopad=False, exact_windowsize=False):
         super().__init__()
         self.window_size = window_size
         self.look_backward = 1
@@ -29,11 +30,20 @@ class LocalAttention_(nn.Module):
 
         if self.autopad:
             orig_t = q.shape[1]
-            q, k, q_rot, k_rot, v = map(lambda t: pad_to_multiple(t, self.window_size, dim=-2), (q, k, q_rot, k_rot, v))
+            q, k, q_rot, k_rot, v = map(
+                lambda t: pad_to_multiple(t, self.window_size, dim=-2),
+                (q, k, q_rot, k_rot, v),
+            )
 
-        window_size, look_backward, look_forward = self.window_size, self.look_backward, self.look_forward
+        window_size, look_backward, look_forward = (
+            self.window_size,
+            self.look_backward,
+            self.look_forward,
+        )
         b, t, e, device, dtype = *q.shape, q.device, q.dtype
-        assert (t % window_size) == 0, f'sequence length {t} must be divisible by window size {window_size} for local attention'
+        assert (
+            t % window_size
+        ) == 0, f"sequence length {t} must be divisible by window size {window_size} for local attention"
 
         windows = t // window_size
 
@@ -43,7 +53,7 @@ class LocalAttention_(nn.Module):
         bucket_fn = lambda t: t.reshape(b, windows, window_size, -1)
         bq, bk, bq_rot, bk_rot, bv = map(bucket_fn, (q, k, q_rot, k_rot, v))
 
-        look_around_kwargs = {'backward': look_backward, 'forward': look_forward}
+        look_around_kwargs = {"backward": look_backward, "forward": look_forward}
         bk = look_around(bk, **look_around_kwargs)
         bk_rot = look_around(bk_rot, **look_around_kwargs)
         bv = look_around(bv, **look_around_kwargs)
@@ -51,16 +61,18 @@ class LocalAttention_(nn.Module):
         bq_t = b_t
         bq_k = look_around(b_t, **look_around_kwargs)
 
-        dots = torch.einsum('bhie,bhje->bhij', bq, bk) * (e ** -0.5)
-        dots_rot = torch.einsum('bhie,bhje->bhij', bq_rot, bk_rot) * (e ** -0.5)
+        dots = torch.einsum("bhie,bhje->bhij", bq, bk) * (e ** -0.5)
+        dots_rot = torch.einsum("bhie,bhje->bhij", bq_rot, bk_rot) * (e ** -0.5)
 
         mask_value = max_neg_value(dots)
         mask_value_rot = max_neg_value(dots_rot)
 
         mask = bq_t[:, :, :, None] < bq_k[:, :, None, :]
         if self.exact_windowsize:
-            max_causal_window_size = (self.window_size * self.look_backward)
-            mask = mask | (bq_t[:, :, :, None] > (bq_k[:, :, None, :] + max_causal_window_size))
+            max_causal_window_size = self.window_size * self.look_backward
+            mask = mask | (
+                bq_t[:, :, :, None] > (bq_k[:, :, None, :] + max_causal_window_size)
+            )
         dots.masked_fill_(mask, mask_value)
         dots_rot.masked_fill_(mask, mask_value_rot)
         del mask
@@ -85,7 +97,7 @@ class LocalAttention_(nn.Module):
         attn = (dots + dots_rot).softmax(dim=-1)
         attn = self.dropout(attn)
 
-        out = torch.einsum('bhij,bhje->bhie', attn, bv)
+        out = torch.einsum("bhij,bhje->bhie", attn, bv)
         out = out.reshape(-1, t, e)
 
         if self.autopad:
