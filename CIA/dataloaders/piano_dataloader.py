@@ -6,18 +6,12 @@ from CIA.dataloaders.dataloader import DataloaderGenerator
 
 
 class PianoDataloaderGenerator(DataloaderGenerator):
-    def __init__(self,
-                 sequences_size,
-                 transformations,
-                 pad_before,
-                 num_elements,
-                 *args, **kwargs):
+    def __init__(
+        self, sequences_size, transformations, pad_before, num_elements, *args, **kwargs
+    ):
         legacy = True
 
-        corpus_it_gen = PianoIteratorGenerator(
-            subsets=[''],
-            num_elements=num_elements
-        )
+        corpus_it_gen = PianoIteratorGenerator(subsets=[""], num_elements=num_elements)
 
         dataset: PianoMidiDataset = PianoMidiDataset(
             corpus_it_gen=corpus_it_gen,
@@ -28,34 +22,36 @@ class PianoDataloaderGenerator(DataloaderGenerator):
             velocity_shift=20,
             transformations=transformations,
             different_time_table_ts_duration=not legacy,
-            pad_before=pad_before
+            offset_beginning=-63,
+            offset_end=-64,
         )
 
         super(PianoDataloaderGenerator, self).__init__(dataset=dataset)
-        self.features = ['pitch', 'velocity', 'duration', 'time_shift']
+        self.features = ["pitch", "velocity", "duration", "time_shift"]
         self.num_channels = 4
 
     @property
     def sequences_size(self):
         return self.dataset.sequence_size
 
-    def dataloaders(self, batch_size, num_workers=0, shuffle_train=True,
-                    shuffle_val=False):
-        dataloaders = self.dataset.data_loaders(batch_size,
-                                                shuffle_train=shuffle_train,
-                                                shuffle_val=shuffle_val,
-                                                num_workers=num_workers)
+    def dataloaders(
+        self, batch_size, num_workers=0, shuffle_train=True, shuffle_val=False
+    ):
+        dataloaders = self.dataset.data_loaders(
+            batch_size,
+            shuffle_train=shuffle_train,
+            shuffle_val=shuffle_val,
+            num_workers=num_workers,
+        )
 
         def _build_dataloader(dataloader):
             for data in dataloader:
                 x = torch.stack([data[e] for e in self.features], dim=-1)
-                ret = {'x': x}
+                ret = {"x": x}
                 yield ret
 
         dataloaders = [
-            _build_dataloader(dataloaders[split])
-            for split
-            in ['train', 'val', 'test']
+            _build_dataloader(dataloaders[split]) for split in ["train", "val", "test"]
         ]
         return dataloaders
 
@@ -68,11 +64,13 @@ class PianoDataloaderGenerator(DataloaderGenerator):
         # xs = self.dataset.interleave_silences_batch(x, self.features)
         xs = x
         # values
-        sequences = {feature: xs[:, feature_index] for feature_index, feature in
-                     enumerate(self.features)}
+        sequences = {
+            feature: xs[:, feature_index]
+            for feature_index, feature in enumerate(self.features)
+        }
         score = self.dataset.tensor_to_score(sequences, fill_features=None)
-        score.write(f'{path}.mid')
-        print(f'File {path}.mid written')
+        score.write(f"{path}.mid")
+        print(f"File {path}.mid written")
 
     def get_elapsed_time(self, x):
         """
@@ -80,13 +78,12 @@ class PianoDataloaderGenerator(DataloaderGenerator):
         it's not properly said the elapsed time
         x is (batch_size, num_events, num_channels)
         """
-        assert 'time_shift' in self.features
+        assert "time_shift" in self.features
 
-        timeshift_indices = x[:, :, self.features.index('time_shift')]
+        timeshift_indices = x[:, :, self.features.index("time_shift")]
         # convert timeshift indices to their actual duration:
         y = self.dataset.timeshift_indices_to_elapsed_time(
-            timeshift_indices,
-            smallest_time_shift=0.02
+            timeshift_indices, smallest_time_shift=0.02
         )
         return y.cumsum(dim=-1)
 
