@@ -1,3 +1,5 @@
+import pickle as pkl
+import numpy as np
 from CIA.data_processors.data_processor import DataProcessor
 import json
 from flask import Flask
@@ -26,94 +28,111 @@ import torch
 import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
-from CIA.getters import get_data_processor, get_dataloader_generator, get_decoder, get_handler, get_sos_embedding, get_positional_embedding
+from CIA.getters import (
+    get_data_processor,
+    get_dataloader_generator,
+    get_decoder,
+    get_handler,
+    get_sos_embedding,
+    get_positional_embedding,
+)
 
-DEBUG = True
+DEBUG = False
 
 
 @click.command()
-@click.argument('cmd')
-@click.option('-o', '--overfitted', is_flag=True)
-@click.option('-c', '--config', type=click.Path(exists=True))
-@click.option('-n', '--num_workers', type=int, default=0)
+@click.argument("cmd")
+@click.option("-o", "--overfitted", is_flag=True)
+@click.option("-c", "--config", type=click.Path(exists=True))
+@click.option("-n", "--num_workers", type=int, default=0)
 def launcher(cmd, overfitted, config, num_workers):
     # === Init process group
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = str(get_free_port())
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = str(get_free_port())
     # === Set shared parameters
     # only use 1 GPU for inference
     print(cmd)
-    assert cmd == 'serve'
+    assert cmd == "serve"
     world_size = 1
 
     # Load config as dict
     config_path = config
-    config_module_name = os.path.splitext(config)[0].replace('/', '.')
+    config_module_name = os.path.splitext(config)[0].replace("/", ".")
     config = importlib.import_module(config_module_name).config
 
     # Compute time stamp
-    if config['timestamp'] is not None:
-        timestamp = config['timestamp']
+    if config["timestamp"] is not None:
+        timestamp = config["timestamp"]
     else:
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
-        config['timestamp'] = timestamp
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+        config["timestamp"] = timestamp
 
     # Create or retreive model_dir
     model_dir = os.path.dirname(config_path)
 
-    print(f'Using {world_size} GPUs')
-    mp.spawn(main,
-             args=(overfitted, config, num_workers, world_size, model_dir),
-             nprocs=world_size,
-             join=True)
+    print(f"Using {world_size} GPUs")
+    mp.spawn(
+        main,
+        args=(overfitted, config, num_workers, world_size, model_dir),
+        nprocs=world_size,
+        join=True,
+    )
 
 
 def main(rank, overfitted, config, num_workers, world_size, model_dir):
-    dist.init_process_group(backend='nccl', world_size=world_size, rank=rank)
+    dist.init_process_group(backend="nccl", world_size=world_size, rank=rank)
     torch.cuda.set_device(rank)
-    device = f'cuda:{rank}'
+    device = f"cuda:{rank}"
 
     # === Decoder ====
     # dataloader generator
     dataloader_generator = get_dataloader_generator(
-        dataset=config['dataset'],
-        dataloader_generator_kwargs=config['dataloader_generator_kwargs'])
+        dataset=config["dataset"],
+        dataloader_generator_kwargs=config["dataloader_generator_kwargs"],
+    )
 
     # data processor
     global data_processor
     data_processor = get_data_processor(
         dataloader_generator=dataloader_generator,
-        data_processor_type=config['data_processor_type'],
-        data_processor_kwargs=config['data_processor_kwargs'])
+        data_processor_type=config["data_processor_type"],
+        data_processor_kwargs=config["data_processor_kwargs"],
+    )
 
     # positional embedding
     positional_embedding: PositionalEmbedding = get_positional_embedding(
         dataloader_generator=dataloader_generator,
-        positional_embedding_dict=config['positional_embedding_dict'])
+        positional_embedding_dict=config["positional_embedding_dict"],
+    )
 
     # sos embedding
     sos_embedding = get_sos_embedding(
         dataloader_generator=dataloader_generator,
-        sos_embedding_dict=config['sos_embedding_dict'])
+        sos_embedding_dict=config["sos_embedding_dict"],
+    )
 
-    decoder = get_decoder(data_processor=data_processor,
-                          dataloader_generator=dataloader_generator,
-                          positional_embedding=positional_embedding,
-                          sos_embedding=sos_embedding,
-                          decoder_kwargs=config['decoder_kwargs'],
-                          training_phase=False,
-                          handler_type=config['handler_type'])
+    decoder = get_decoder(
+        data_processor=data_processor,
+        dataloader_generator=dataloader_generator,
+        positional_embedding=positional_embedding,
+        sos_embedding=sos_embedding,
+        decoder_kwargs=config["decoder_kwargs"],
+        training_phase=False,
+        handler_type=config["handler_type"],
+    )
 
     decoder.to(device)
-    decoder = DistributedDataParallel(module=decoder,
-                                      device_ids=[rank],
-                                      output_device=rank)
+    decoder = DistributedDataParallel(
+        module=decoder, device_ids=[rank], output_device=rank
+    )
 
     global handler
-    handler = get_handler(handler_type=config['handler_type'],
-                          decoder=decoder,
-                          model_dir=model_dir,
-                          dataloader_generator=dataloader_generator)
+    handler = get_handler(
+        handler_type=config["handler_type"],
+        decoder=decoder,
+        model_dir=model_dir,
+        dataloader_generator=dataloader_generator,
+    )
 
     # Load
     if overfitted:
@@ -129,200 +148,245 @@ def main(rank, overfitted, config, num_workers, world_size, model_dir):
         # accessible from outside:
         port = 5000 if DEBUG else 8080
 
-        app.run(host='0.0.0.0',
-                port=port,
-                threaded=True,
-                debug=DEBUG,
-                use_reloader=False)
+        app.run(
+            host="0.0.0.0", port=port, threaded=True, debug=DEBUG, use_reloader=False
+        )
 
 
-@app.route('/ping', methods=['GET'])
+@app.route("/ping", methods=["GET"])
 def ping():
-    return 'pong'
+    return "pong"
 
 
-@app.route('/invocations', methods=['POST'])
+@app.route("/invocations", methods=["POST"])
 def invocations():
 
     # === Parse request ===
     # common components
     d = json.loads(request.data)
-    case = d['case']
-    assert case in ['start', 'continue']
+    case = d["case"]
+    assert case in ["start", "continue"]
     if DEBUG:
         print(d)
 
-    notes = d['notes']
-    top_p = float(d['top_p'])
-    selected_region = d['selected_region']
-    if 'clip_start' not in d:
-        clip_start = selected_region['start']
-        d['clip_start'] = clip_start
+    # Save or load random seed
+    np_rand_state = np.random.get_state()
+    now = datetime.today().strftime("%Y-%m-%d-%H:%M:%S")
+    with open(f"random_states/{now}.pickle", "wb") as handle:
+        pkl.dump(np_rand_state, handle)
+
+    # name = ""
+    # with open(f"random_srtates/{name}.pickle", "rb") as handle:
+    #     np_rand_state = pkl.load(handle)
+    # np.random.set_state(np_rand_state)
+
+    notes = d["notes"]
+    top_p = float(d["top_p"])
+    selected_region = d["selected_region"]
+    if "clip_start" not in d:
+        clip_start = selected_region["start"]
+        d["clip_start"] = clip_start
     else:
-        clip_start = d['clip_start']
+        clip_start = d["clip_start"]
     print(selected_region, clip_start)
-    
-    tempo = d['tempo']
+
+    tempo = d["tempo"]
     beats_per_second = tempo / 60
     seconds_per_beat = 1 / beats_per_second
 
     # two different parsing methods
-    if case == 'start':
+    if case == "start":
         num_max_generated_events = 15
-        (x, metadata_dict, unused_before, before, after, unused_after,
-         clip_start, selected_region,
-         region_after_start_time, regenerate_first_ts) = ableton_to_tensor(notes, clip_start,
-                                                      seconds_per_beat,
-                                                      selected_region)
-    elif case == 'continue':
+        (
+            x,
+            metadata_dict,
+            unused_before,
+            before,
+            after,
+            unused_after,
+            clip_start,
+            selected_region,
+            region_after_start_time,
+            regenerate_first_ts,
+        ) = ableton_to_tensor(notes, clip_start, seconds_per_beat, selected_region)
+    elif case == "continue":
         num_max_generated_events = 20
-        notes_before = d['notes_before_next_region']
-        notes_after = d['notes_after_region']
+        notes_before = d["notes_before_next_region"]
+        notes_after = d["notes_after_region"]
 
         # selected_region MUST contain the right start!
-        x, metadata_dict, unused_before, before, after, unused_after, selected_region, region_after_start_time = json_to_tensor(
-            notes_before, notes_after, seconds_per_beat, selected_region)
+        (
+            x,
+            metadata_dict,
+            unused_before,
+            before,
+            after,
+            unused_after,
+            selected_region,
+            region_after_start_time,
+        ) = json_to_tensor(notes_before, notes_after, seconds_per_beat, selected_region)
         regenerate_first_ts = False
     else:
         raise NotImplementedError
 
     global handler
-
-    x_inpainted, generated_region, decoding_end, num_event_generated, done = handler.inpaint_non_optimized(
+    (
+        x_inpainted,
+        generated_region,
+        decoding_end,
+        num_event_generated,
+        done,
+    ) = handler.inpaint_non_optimized_superconditioning(
         x=x,
         metadata_dict=metadata_dict,
-        temperature=1.,
+        temperature=1.0,
         top_p=top_p,
         top_k=0,
         num_max_generated_events=num_max_generated_events,
-        regenerate_first_ts=regenerate_first_ts
-        )
+        regenerate_first_ts=regenerate_first_ts,
+    )
 
-    new_x = torch.cat([
-        unused_before[0], before[0], generated_region[0], after[0],
-        unused_after[0]
-    ],
-                      dim=0).detach().cpu()
+    new_x = (
+        torch.cat(
+            [
+                unused_before[0],
+                before[0],
+                generated_region[0],
+                after[0],
+                unused_after[0],
+            ],
+            dim=0,
+        )
+        .detach()
+        .cpu()
+    )
 
     # ableton_notes is useful ONLY when done!
-    print('---all_notes_up_so_far')
+    # print("---all_notes_up_so_far")
     ableton_notes, track_duration, _ = tensor_to_ableton(
-        new_x,
-        start_time=clip_start,
-        beats_per_second=beats_per_second,
-        rescale=False)
-    
-    
-    print('--- New Region')
+        new_x, start_time=clip_start, beats_per_second=beats_per_second, rescale=False
+    )
+
+    # print("--- New Region")
     ableton_notes_region, _, _ = tensor_to_ableton(
         generated_region[0].detach().cpu(),
-        start_time=selected_region['start'],
-        expected_duration=(selected_region['end'] - selected_region['start']) *
-        seconds_per_beat,
+        start_time=selected_region["start"],
+        expected_duration=(selected_region["end"] - selected_region["start"])
+        * seconds_per_beat,
         beats_per_second=beats_per_second,
         # rescale=done)
-        rescale=False)
+        rescale=False,
+    )
 
-    after_region = torch.cat([after[0], unused_after[0]],
-                             dim=0).detach().cpu()
-    
-    print('--- New After')
+    after_region = torch.cat([after[0], unused_after[0]], dim=0).detach().cpu()
+
+    # print("--- New After")
     ableton_notes_after_region, _, _ = tensor_to_ableton(
         after_region,
-        start_time=region_after_start_time,  
-        beats_per_second=beats_per_second)
+        start_time=region_after_start_time,
+        beats_per_second=beats_per_second,
+    )
 
     # Contains unused_before, before, generated_region
     # to be used by next requests
-    new_before = torch.cat([unused_before[0], before[0], generated_region[0]],
-                           dim=0).detach().cpu()
-    
-    print('--- New before')
+    new_before = (
+        torch.cat([unused_before[0], before[0], generated_region[0]], dim=0)
+        .detach()
+        .cpu()
+    )
+
+    # print("--- New before")
     ableton_notes_new_before, _, time_next_note_before = tensor_to_ableton(
         new_before,
         start_time=clip_start,
         beats_per_second=beats_per_second,
-        rescale=False)
-    
-    ableton_notes_region = shorten_durations(ableton_notes_region,
-                                             ableton_notes_after_region)
-    
+        rescale=False,
+    )
+
+    ableton_notes_region = shorten_durations(
+        ableton_notes_region, ableton_notes_after_region
+    )
+
     # We must update the selected region!
     # Next note starts at new_before_duration
-    selected_region['start'] = time_next_note_before
+    selected_region["start"] = time_next_note_before
 
     # print(f'albeton notes: {ableton_notes}')
     # print(f'region start: {ableton_notes_region}')
     d = {
-        'id': d['id'],
-        'notes': ableton_notes,
-        'track_duration': track_duration,
-        'done': done,
-        'top_p': top_p,
-        'selected_region': selected_region,
-        'notes_before_next_region': ableton_notes_new_before,
-        'notes_region': ableton_notes_region,
-        'notes_after_region': ableton_notes_after_region,
-        'clip_start': clip_start,
-        'clip_id': d['clip_id'],
-        'clip_end': d['clip_end'],
-        'detail_clip_id': d['detail_clip_id'],
-        'tempo': d['tempo']
-    }    
-    print('after')
-    print(selected_region)        
+        "id": d["id"],
+        "notes": ableton_notes,
+        "track_duration": track_duration,
+        "done": done,
+        "top_p": top_p,
+        "selected_region": selected_region,
+        "notes_before_next_region": ableton_notes_new_before,
+        "notes_region": ableton_notes_region,
+        "notes_after_region": ableton_notes_after_region,
+        "clip_start": clip_start,
+        "clip_id": d["clip_id"],
+        "clip_end": d["clip_end"],
+        "detail_clip_id": d["detail_clip_id"],
+        "tempo": d["tempo"],
+    }
+    print("after")
+    print(selected_region)
     return jsonify(d)
+
 
 def shorten_durations(generated_notes, notes_after):
     # shorten durations if necessary
     # (case when two notes overlap are not well-handled by Ableton)
     # (causes serious issues when generated notes overlap with the region after)
-    
+
     # {pitch: index_in_the_seq_of_the_last_played_pitch}
-    d = {} 
-    
+    d = {}
+
     max_end_time = 0
     for k, note in enumerate(generated_notes):
-        pitch = note['pitch']
-        
-        if pitch in d:            
-            previous_note = generated_notes[d[note['pitch']]]
-            
-            current_time = note['time']
-            previous_note_sounding_end = previous_note['time'] + previous_note['duration']
+        pitch = note["pitch"]
+
+        if pitch in d:
+            previous_note = generated_notes[d[note["pitch"]]]
+
+            current_time = note["time"]
+            previous_note_sounding_end = (
+                previous_note["time"] + previous_note["duration"]
+            )
 
             if previous_note_sounding_end > current_time:
-                previous_note['duration'] = current_time - previous_note['time'] - 1e-2
-        
-        max_end_time = max(max_end_time,
-                    note['time'] + note['duration'])
-        d[note['pitch']] = k
-        
-    print(f"MAX END TIME: {max_end_time}")
-    print('SHORTENING')
+                previous_note["duration"] = current_time - previous_note["time"] - 1e-2
+
+        max_end_time = max(max_end_time, note["time"] + note["duration"])
+        d[note["pitch"]] = k
+
+    # print(f"MAX END TIME: {max_end_time}")
+    # print("SHORTENING")
     for k, note in enumerate(notes_after):
         print(f"time: {note['time']}")
-        time = note['time']
+        time = note["time"]
         if time > max_end_time:
             break
-        
+
         if len(d) == 0:
             break
-        
-        pitch = note['pitch']
-        
-        if pitch in d:            
+
+        pitch = note["pitch"]
+
+        if pitch in d:
             previous_note = generated_notes[d[pitch]]
-            
-            current_time = note['time']
-            previous_note_sounding_end = previous_note['time'] + previous_note['duration']
+
+            current_time = note["time"]
+            previous_note_sounding_end = (
+                previous_note["time"] + previous_note["duration"]
+            )
             if previous_note_sounding_end > current_time:
-                previous_note['duration'] = current_time - previous_note['time'] - 1e-2
-                print(f'Note cut {previous_note}')
+                previous_note["duration"] = current_time - previous_note["time"] - 1e-2
+                print(f"Note cut {previous_note}")
             del d[pitch]
-        
-    return generated_notes    
-        
+
+    return generated_notes
+
 
 def preprocess_input(x, event_start, event_end):
     """
@@ -361,7 +425,7 @@ def preprocess_input(x, event_start, event_end):
 
     offset = slice_begin
     masked_positions = torch.zeros_like(x).long()
-    masked_positions[:, event_start - offset:event_end - offset] = 1
+    masked_positions[:, event_start - offset : event_end - offset] = 1
 
     # the last time shift should be known:
     # TODO check this condition : should be done in conjunction with setting the correct duration of the inpainted region
@@ -437,10 +501,9 @@ def preprocess_input(x, event_start, event_end):
 #     return x, num_events_before_padding
 
 
-def ableton_to_tensor(ableton_note_list,
-                      clip_start,
-                      seconds_per_beat,
-                      selected_region=None):
+def ableton_to_tensor(
+    ableton_note_list, clip_start, seconds_per_beat, selected_region=None
+):
     """[summary]
     Args:
         ableton_note_list ([type]): [description]
@@ -451,27 +514,27 @@ def ableton_to_tensor(ableton_note_list,
         x [type]: x is at least of size (1024, 4), it is padded if necessary
     """
     d = {
-        'pitch': [],
-        'time': [],
-        'duration': [],
-        'velocity': [],
-        'muted': [],
+        "pitch": [],
+        "time": [],
+        "duration": [],
+        "velocity": [],
+        "muted": [],
     }
     mod = -1
 
     # pitch time duration velocity muted
-    ableton_features = ['pitch', 'time', 'duration', 'velocity', 'muted']
+    ableton_features = ["pitch", "time", "duration", "velocity", "muted"]
 
     if selected_region is not None:
-        start_time = selected_region['start']
-        end_time = selected_region['end']
+        start_time = selected_region["start"]
+        end_time = selected_region["end"]
 
     for msg in ableton_note_list:
-        if msg == 'notes':
+        if msg == "notes":
             pass
-        elif msg == 'note':
+        elif msg == "note":
             mod = 0
-        elif msg == 'done':
+        elif msg == "done":
             break
         else:
             if mod >= 0:
@@ -479,20 +542,24 @@ def ableton_to_tensor(ableton_note_list,
                 mod = (mod + 1) % 5
 
     # we now have to sort
-    l = [[p, t, d, v] for p, t, d, v in zip(d['pitch'], d['time'],
-                                            d['duration'], d['velocity'])]
+    l = [
+        [p, t, d, v]
+        for p, t, d, v in zip(d["pitch"], d["time"], d["duration"], d["velocity"])
+    ]
 
     l = sorted(l, key=lambda x: (x[1], -x[0]))
 
-    d = dict(pitch=torch.LongTensor([x[0] for x in l]),
-             time=torch.FloatTensor([x[1] for x in l]),
-             duration=torch.FloatTensor([max(float(x[2]), 0.05) for x in l]),
-             velocity=torch.LongTensor([x[3] for x in l]))
+    d = dict(
+        pitch=torch.LongTensor([x[0] for x in l]),
+        time=torch.FloatTensor([x[1] for x in l]),
+        duration=torch.FloatTensor([max(float(x[2]), 0.05) for x in l]),
+        velocity=torch.LongTensor([x[3] for x in l]),
+    )
 
     # compute event_start, event_end
     # num_notes is the number of notes in the original sequence
     epsilon = 1e-4
-    num_notes = d['time'].size(0)
+    num_notes = d["time"].size(0)
 
     event_start, event_end = None, None
     if selected_region is not None:
@@ -502,7 +569,7 @@ def ableton_to_tensor(ableton_note_list,
             if i == num_notes:
                 event_start = num_notes
                 break
-            if d['time'][i].item() >= start_time - epsilon:
+            if d["time"][i].item() >= start_time - epsilon:
                 flag = False
                 event_start = i
             else:
@@ -514,67 +581,70 @@ def ableton_to_tensor(ableton_note_list,
             if i == num_notes:
                 event_end = num_notes
                 break
-            if i > d['time'].size(0):
+            if i > d["time"].size(0):
                 flag = False
                 event_end = i
-            elif d['time'][i].item() >= end_time - epsilon:
+            elif d["time"][i].item() >= end_time - epsilon:
                 flag = False
                 event_end = i
             else:
                 i = i + 1
 
-    
     # if no region after
-    if event_end == len(d['time']):
-        region_after_start_time = selected_region['end']
+    if event_end == len(d["time"]):
+        region_after_start_time = selected_region["end"]
     else:
         # time in beats
-        region_after_start_time = d['time'][event_end].item()
-        end_time = d['time'][event_end].item()
-        
+        region_after_start_time = d["time"][event_end].item()
+        end_time = d["time"][event_end].item()
+
     # if there is at least ONE note before the region
     # start_time becomes the start_time of this note
     # its timeshift will have to be recomputed
     if event_start > 0:
         regenerate_first_ts = True
         event_start = event_start - 1
-        start_time = d['time'][event_start].item()
-        clip_start = d['time'][0].item() # in beats still
+        start_time = d["time"][event_start].item()
+        clip_start = d["time"][0].item()  # in beats still
     else:
         # If no notes before, start_time also defines the clip_start as
         # clip_start is incorrect
         regenerate_first_ts = False
         clip_start = start_time
-        
-        
+
     # update selected region with the newly computed region
-    selected_region['end'] = end_time
-    selected_region['start'] = start_time
-        
-        
+    selected_region["end"] = end_time
+    selected_region["start"] = start_time
+
     # ============== to seconds ==================
     # multiply by tempo
-    d['time'] = d['time'] * seconds_per_beat
-    d['duration'] = d['duration'] * seconds_per_beat
+    d["time"] = d["time"] * seconds_per_beat
+    d["duration"] = d["duration"] * seconds_per_beat
 
     # compute time_shift
-    d['time_shift'] = torch.cat(
-        [d['time'][1:] - d['time'][:-1],
-         torch.zeros(1, )], dim=0)
-    
-        
+    d["time_shift"] = torch.cat(
+        [
+            d["time"][1:] - d["time"][:-1],
+            torch.zeros(
+                1,
+            ),
+        ],
+        dim=0,
+    )
+
     placeholder_duration = (end_time - start_time) * seconds_per_beat
     placeholder_duration = cuda_variable(torch.Tensor([placeholder_duration]))
     global data_processor
 
     placeholder, placeholder_duration_token = data_processor.compute_placeholder(
-        placeholder_duration=placeholder_duration, batch_size=1)
+        placeholder_duration=placeholder_duration, batch_size=1
+    )
 
     # delete unnecessary entries in dict
-    del d['time']
+    del d["time"]
     before = {k: v[:event_start] for k, v in d.items()}
     if regenerate_first_ts:
-        first_note = {k: v[event_start:event_start + 1] for k, v in d.items()}
+        first_note = {k: v[event_start : event_start + 1] for k, v in d.items()}
     after = {k: v[event_end:] for k, v in d.items()}
 
     global handler
@@ -586,64 +656,73 @@ def ableton_to_tensor(ableton_note_list,
         before = handler.dataloader_generator.dataset.add_start_end_symbols(
             sequence=before,
             start_time=event_start - data_processor.num_events_before,
-            sequence_size=data_processor.num_events_before)
+            sequence_size=data_processor.num_events_before,
+        )
 
         before = handler.dataloader_generator.dataset.tokenize(before)
         before = {k: torch.LongTensor(t) for k, t in before.items()}
         before = torch.stack(
-            [before[e] for e in handler.dataloader_generator.features],
-            dim=-1).long()
+            [before[e] for e in handler.dataloader_generator.features], dim=-1
+        ).long()
 
         before = cuda_variable(before)
         unused_before = before[:0]
     else:
         before = {k: t.numpy() for k, t in before.items()}
         before = handler.dataloader_generator.dataset.add_start_end_symbols(
-            sequence=before, start_time=0, sequence_size=event_start)
+            sequence=before, start_time=0, sequence_size=event_start
+        )
         before = handler.dataloader_generator.dataset.tokenize(before)
         before = {k: torch.LongTensor(t) for k, t in before.items()}
         before = torch.stack(
-            [before[e] for e in handler.dataloader_generator.features],
-            dim=-1).long()
+            [before[e] for e in handler.dataloader_generator.features], dim=-1
+        ).long()
         before = cuda_variable(before)
 
-        unused_before, before = (before[:-data_processor.num_events_before],
-                                 before[-data_processor.num_events_before:])
+        unused_before, before = (
+            before[: -data_processor.num_events_before],
+            before[-data_processor.num_events_before :],
+        )
 
     # same for "after"
-    num_notes_after = after['pitch'].size(0)
+    num_notes_after = after["pitch"].size(0)
 
     # After cannot contain 'START' symbol
     after = {k: t.numpy() for k, t in after.items()}
     after = handler.dataloader_generator.dataset.add_start_end_symbols(
         sequence=after,
         start_time=0,
-        sequence_size=max(num_notes_after, data_processor.num_events_after))
+        sequence_size=max(num_notes_after, data_processor.num_events_after),
+    )
 
     after = handler.dataloader_generator.dataset.tokenize(after)
     after = {k: torch.LongTensor(t) for k, t in after.items()}
     after = torch.stack(
-        [after[e] for e in handler.dataloader_generator.features],
-        dim=-1).long()
+        [after[e] for e in handler.dataloader_generator.features], dim=-1
+    ).long()
     after = cuda_variable(after)
 
-    after, unused_after = (after[:data_processor.num_events_after],
-                           after[data_processor.num_events_after:])
-    
+    after, unused_after = (
+        after[: data_processor.num_events_after],
+        after[data_processor.num_events_after :],
+    )
+
     # first note as tensor:
     if regenerate_first_ts:
         first_note = {k: t.numpy() for k, t in first_note.items()}
         first_note = handler.dataloader_generator.dataset.tokenize(first_note)
         first_note = {k: torch.LongTensor(t) for k, t in first_note.items()}
         first_note = torch.stack(
-            [first_note[e] for e in handler.dataloader_generator.features],
-            dim=-1).long()
-        first_note = cuda_variable(first_note)       
-    
+            [first_note[e] for e in handler.dataloader_generator.features], dim=-1
+        ).long()
+        first_note = cuda_variable(first_note)
 
-    middle_length = (data_processor.dataloader_generator.sequences_size -
-                     data_processor.num_events_before -
-                     data_processor.num_events_after - 2)
+    middle_length = (
+        data_processor.dataloader_generator.sequences_size
+        - data_processor.num_events_before
+        - data_processor.num_events_after
+        - 2
+    )
 
     # add batch dim
     unused_before = unused_before.unsqueeze(0)
@@ -654,22 +733,32 @@ def ableton_to_tensor(ableton_note_list,
     # create x:
     # Warning special case where we need to specify the first note
     if regenerate_first_ts:
-        x = torch.cat([
-        before, placeholder, after,
-        data_processor.sod_symbols.unsqueeze(0).unsqueeze(0),
-        first_note.unsqueeze(0),
-        cuda_variable(
-            torch.zeros(1, middle_length - 1, data_processor.num_channels))
-    ],
-                  dim=1).long()    
+        x = torch.cat(
+            [
+                before,
+                placeholder,
+                after,
+                data_processor.sod_symbols.unsqueeze(0).unsqueeze(0),
+                first_note.unsqueeze(0),
+                cuda_variable(
+                    torch.zeros(1, middle_length - 1, data_processor.num_channels)
+                ),
+            ],
+            dim=1,
+        ).long()
     else:
-        x = torch.cat([
-            before, placeholder, after,
-            data_processor.sod_symbols.unsqueeze(0).unsqueeze(0),
-            cuda_variable(
-                torch.zeros(1, middle_length, data_processor.num_channels))
-        ],
-                    dim=1).long()
+        x = torch.cat(
+            [
+                before,
+                placeholder,
+                after,
+                data_processor.sod_symbols.unsqueeze(0).unsqueeze(0),
+                cuda_variable(
+                    torch.zeros(1, middle_length, data_processor.num_channels)
+                ),
+            ],
+            dim=1,
+        ).long()
 
     # if "before" was padded
     if event_start < data_processor.num_events_before:
@@ -688,19 +777,31 @@ def ableton_to_tensor(ableton_note_list,
     if clip_start > start_time:
         clip_start = start_time
 
-    metadata_dict = dict(original_sequence=x,
-                         placeholder_duration=placeholder_duration,
-                         decoding_start=data_processor.num_events_before +
-                         data_processor.num_events_after + 2)
+    metadata_dict = dict(
+        original_sequence=x,
+        placeholder_duration=placeholder_duration,
+        decoding_start=data_processor.num_events_before
+        + data_processor.num_events_after
+        + 2,
+    )
 
-    return x, metadata_dict, unused_before, before, after, unused_after, clip_start, selected_region, region_after_start_time, regenerate_first_ts
+    return (
+        x,
+        metadata_dict,
+        unused_before,
+        before,
+        after,
+        unused_after,
+        clip_start,
+        selected_region,
+        region_after_start_time,
+        regenerate_first_ts,
+    )
 
 
-def tensor_to_ableton(tensor,
-                      start_time,
-                      beats_per_second,
-                      expected_duration=None,
-                      rescale=False):
+def tensor_to_ableton(
+    tensor, start_time, beats_per_second, expected_duration=None, rescale=False
+):
     """
     convert back a tensor to ableton format.
     Then shift all notes by clip start
@@ -719,8 +820,9 @@ def tensor_to_ableton(tensor,
     index2value = handler.dataloader_generator.dataset.index2value
 
     timeshifts = torch.FloatTensor(
-        [index2value['time_shift'][ts.item()] for ts in tensor[:, 3]])
-    
+        [index2value["time_shift"][ts.item()] for ts in tensor[:, 3]]
+    )
+
     # compute rescaling factor
     time = torch.cumsum(timeshifts, dim=0)
     actual_duration = time[-1].item()
@@ -730,30 +832,36 @@ def tensor_to_ableton(tensor,
         rescaling_factor = 1
 
     # update time if needed, takes into acount start_time
-    time = (torch.cat([torch.zeros(
-        (1, )), time[:-1]], dim=0) * rescaling_factor * beats_per_second +
-            start_time)
+    time = (
+        torch.cat([torch.zeros((1,)), time[:-1]], dim=0)
+        * rescaling_factor
+        * beats_per_second
+        + start_time
+    )
     for i in range(num_events):
-        note = dict(pitch=index2value['pitch'][tensor[i, 0].item()],
-                    time=time[i].item(),
-                    duration=index2value['duration'][tensor[i, 2].item()] *
-                    beats_per_second * rescaling_factor,
-                    velocity=index2value['velocity'][tensor[i, 1].item()],
-                    muted=0)
+        note = dict(
+            pitch=index2value["pitch"][tensor[i, 0].item()],
+            time=time[i].item(),
+            duration=index2value["duration"][tensor[i, 2].item()]
+            * beats_per_second
+            * rescaling_factor,
+            velocity=index2value["velocity"][tensor[i, 1].item()],
+            muted=0,
+        )
         notes.append(note)
 
-    track_duration = time[-1].item() + (notes[-1]['duration'].item() *
-                                        rescaling_factor * beats_per_second)
+    track_duration = time[-1].item() + (
+        notes[-1]["duration"].item() * rescaling_factor * beats_per_second
+    )
     time_next_note = actual_duration * beats_per_second + start_time
-    print(f'DURATION: {actual_duration}')
-    print(f'LAST timeshift out {timeshifts[-1]}')
+    # print(f"DURATION: {actual_duration}")
+    # print(f"LAST timeshift out {timeshifts[-1]}")
     return notes, track_duration, time_next_note
 
 
-def json_to_tensor(notes_before_json,
-                   notes_after_json,
-                   seconds_per_beat,
-                   selected_region=None):
+def json_to_tensor(
+    notes_before_json, notes_after_json, seconds_per_beat, selected_region=None
+):
     """[summary]
     Args:
         ableton_note_list ([type]): [description]
@@ -765,11 +873,11 @@ def json_to_tensor(notes_before_json,
     """
     # Parse before:
     d_before = {
-        'pitch': [],
-        'time': [],
-        'duration': [],
-        'velocity': [],
-        'muted': [],
+        "pitch": [],
+        "time": [],
+        "duration": [],
+        "velocity": [],
+        "muted": [],
     }
 
     for n in notes_before_json:
@@ -777,25 +885,32 @@ def json_to_tensor(notes_before_json,
             d_before[k].append(v)
 
     # we now have to sort
-    l = [[p, t, d, v]
-         for p, t, d, v in zip(d_before['pitch'], d_before['time'],
-                               d_before['duration'], d_before['velocity'])]
+    l = [
+        [p, t, d, v]
+        for p, t, d, v in zip(
+            d_before["pitch"],
+            d_before["time"],
+            d_before["duration"],
+            d_before["velocity"],
+        )
+    ]
 
     l = sorted(l, key=lambda x: (x[1], -x[0]))
 
-    d_before = dict(pitch=torch.LongTensor([x[0] for x in l]),
-                    time=torch.FloatTensor([x[1] for x in l]),
-                    duration=torch.FloatTensor(
-                        [max(float(x[2]), 0.05) for x in l]),
-                    velocity=torch.LongTensor([x[3] for x in l]))
+    d_before = dict(
+        pitch=torch.LongTensor([x[0] for x in l]),
+        time=torch.FloatTensor([x[1] for x in l]),
+        duration=torch.FloatTensor([max(float(x[2]), 0.05) for x in l]),
+        velocity=torch.LongTensor([x[3] for x in l]),
+    )
 
     # Parse after
     d_after = {
-        'pitch': [],
-        'time': [],
-        'duration': [],
-        'velocity': [],
-        'muted': [],
+        "pitch": [],
+        "time": [],
+        "duration": [],
+        "velocity": [],
+        "muted": [],
     }
 
     for n in notes_after_json:
@@ -803,63 +918,80 @@ def json_to_tensor(notes_before_json,
             d_after[k].append(v)
 
     # we now have to sort
-    l = [[p, t, d, v]
-         for p, t, d, v in zip(d_after['pitch'], d_after['time'],
-                               d_after['duration'], d_after['velocity'])]
+    l = [
+        [p, t, d, v]
+        for p, t, d, v in zip(
+            d_after["pitch"], d_after["time"], d_after["duration"], d_after["velocity"]
+        )
+    ]
 
     l = sorted(l, key=lambda x: (x[1], -x[0]))
 
-    d_after = dict(pitch=torch.LongTensor([x[0] for x in l]),
-                   time=torch.FloatTensor([x[1] for x in l]),
-                   duration=torch.FloatTensor(
-                       [max(float(x[2]), 0.05) for x in l]),
-                   velocity=torch.LongTensor([x[3] for x in l]))
+    d_after = dict(
+        pitch=torch.LongTensor([x[0] for x in l]),
+        time=torch.FloatTensor([x[1] for x in l]),
+        duration=torch.FloatTensor([max(float(x[2]), 0.05) for x in l]),
+        velocity=torch.LongTensor([x[3] for x in l]),
+    )
 
     # time in beats
-    region_after_start_time = selected_region['end']
-    last_time_shift_before = (selected_region['start'] - d_before['time'][-1].item()) * seconds_per_beat
-    
-    print(f'LAST TIMESHIFT IN {last_time_shift_before}')
+    region_after_start_time = selected_region["end"]
+    last_time_shift_before = (
+        selected_region["start"] - d_before["time"][-1].item()
+    ) * seconds_per_beat
+
+    # print(f"LAST TIMESHIFT IN {last_time_shift_before}")
 
     # multiply by tempo
-    d_before['time'] = d_before['time'] * seconds_per_beat
-    d_before['duration'] = d_before['duration'] * seconds_per_beat
+    d_before["time"] = d_before["time"] * seconds_per_beat
+    d_before["duration"] = d_before["duration"] * seconds_per_beat
 
     # compute time_shift
-    d_before['time_shift'] = torch.cat(
-        [d_before['time'][1:] - d_before['time'][:-1],
-         torch.tensor([last_time_shift_before])],
-        dim=0)
+    d_before["time_shift"] = torch.cat(
+        [
+            d_before["time"][1:] - d_before["time"][:-1],
+            torch.tensor([last_time_shift_before]),
+        ],
+        dim=0,
+    )
 
-    
-    # same for "after"    
-    d_after['time'] = d_after['time'] * seconds_per_beat
-    d_after['duration'] = d_after['duration'] * seconds_per_beat
+    # same for "after"
+    d_after["time"] = d_after["time"] * seconds_per_beat
+    d_after["duration"] = d_after["duration"] * seconds_per_beat
 
     # compute time_shift
-    num_notes_after = len(d_after['pitch'])
+    num_notes_after = len(d_after["pitch"])
     if num_notes_after > 0:
-        d_after['time_shift'] = torch.cat(
-            [d_after['time'][1:] - d_after['time'][:-1],
-            torch.zeros(1, )], dim=0)
+        d_after["time_shift"] = torch.cat(
+            [
+                d_after["time"][1:] - d_after["time"][:-1],
+                torch.zeros(
+                    1,
+                ),
+            ],
+            dim=0,
+        )
     else:
-        d_after['time_shift'] = torch.tensor([])
+        d_after["time_shift"] = torch.tensor([])
 
     # compute placeholder
     # selected region already contains exactly the correct durations
 
-    placeholder_duration = (selected_region['end'] - selected_region['start']) * seconds_per_beat
+    placeholder_duration = (
+        selected_region["end"] - selected_region["start"]
+    ) * seconds_per_beat
     placeholder_duration = cuda_variable(torch.Tensor([placeholder_duration]))
     global data_processor
 
     placeholder, placeholder_duration_token = data_processor.compute_placeholder(
-        placeholder_duration=placeholder_duration, batch_size=1)
+        placeholder_duration=placeholder_duration, batch_size=1
+    )
 
-    event_start = len(d_before['time'])
-    
+    event_start = len(d_before["time"])
+
     # delete unnecessary entries in dict
-    del d_before['time']
-    del d_after['time']
+    del d_before["time"]
+    del d_after["time"]
     before = {k: v for k, v in d_before.items()}
     after = {k: v for k, v in d_after.items()}
 
@@ -872,52 +1004,60 @@ def json_to_tensor(notes_before_json,
         before = handler.dataloader_generator.dataset.add_start_end_symbols(
             sequence=before,
             start_time=event_start - data_processor.num_events_before,
-            sequence_size=data_processor.num_events_before)
+            sequence_size=data_processor.num_events_before,
+        )
 
         before = handler.dataloader_generator.dataset.tokenize(before)
         before = {k: torch.LongTensor(t) for k, t in before.items()}
         before = torch.stack(
-            [before[e] for e in handler.dataloader_generator.features],
-            dim=-1).long()
+            [before[e] for e in handler.dataloader_generator.features], dim=-1
+        ).long()
 
         before = cuda_variable(before)
         unused_before = before[:0]
     else:
         before = {k: t.numpy() for k, t in before.items()}
         before = handler.dataloader_generator.dataset.add_start_end_symbols(
-            sequence=before, start_time=0, sequence_size=event_start)
+            sequence=before, start_time=0, sequence_size=event_start
+        )
         before = handler.dataloader_generator.dataset.tokenize(before)
         before = {k: torch.LongTensor(t) for k, t in before.items()}
         before = torch.stack(
-            [before[e] for e in handler.dataloader_generator.features],
-            dim=-1).long()
+            [before[e] for e in handler.dataloader_generator.features], dim=-1
+        ).long()
         before = cuda_variable(before)
 
-        unused_before, before = (before[:-data_processor.num_events_before],
-                                 before[-data_processor.num_events_before:])
-
-
+        unused_before, before = (
+            before[: -data_processor.num_events_before],
+            before[-data_processor.num_events_before :],
+        )
 
     # After cannot contain 'START' symbol
     after = {k: t.numpy() for k, t in after.items()}
     after = handler.dataloader_generator.dataset.add_start_end_symbols(
         sequence=after,
         start_time=0,
-        sequence_size=max(num_notes_after, data_processor.num_events_after))
+        sequence_size=max(num_notes_after, data_processor.num_events_after),
+    )
 
     after = handler.dataloader_generator.dataset.tokenize(after)
     after = {k: torch.LongTensor(t) for k, t in after.items()}
     after = torch.stack(
-        [after[e] for e in handler.dataloader_generator.features],
-        dim=-1).long()
+        [after[e] for e in handler.dataloader_generator.features], dim=-1
+    ).long()
     after = cuda_variable(after)
 
-    after, unused_after = (after[:data_processor.num_events_after],
-                           after[data_processor.num_events_after:])
+    after, unused_after = (
+        after[: data_processor.num_events_after],
+        after[data_processor.num_events_after :],
+    )
 
-    middle_length = (data_processor.dataloader_generator.sequences_size -
-                     data_processor.num_events_before -
-                     data_processor.num_events_after - 2)
+    middle_length = (
+        data_processor.dataloader_generator.sequences_size
+        - data_processor.num_events_before
+        - data_processor.num_events_after
+        - 2
+    )
 
     # add batch dim
     unused_before = unused_before.unsqueeze(0)
@@ -926,13 +1066,16 @@ def json_to_tensor(notes_before_json,
     unused_after = unused_after.unsqueeze(0)
 
     # create x:
-    x = torch.cat([
-        before, placeholder, after,
-        data_processor.sod_symbols.unsqueeze(0).unsqueeze(0),
-        cuda_variable(
-            torch.zeros(1, middle_length, data_processor.num_channels))
-    ],
-                  dim=1).long()
+    x = torch.cat(
+        [
+            before,
+            placeholder,
+            after,
+            data_processor.sod_symbols.unsqueeze(0).unsqueeze(0),
+            cuda_variable(torch.zeros(1, middle_length, data_processor.num_channels)),
+        ],
+        dim=1,
+    ).long()
 
     # if "before" was padded
     if event_start < data_processor.num_events_before:
@@ -947,12 +1090,24 @@ def json_to_tensor(notes_before_json,
     if num_notes_after < data_processor.num_events_after:
         after = after[:, :num_notes_after]
 
-    metadata_dict = dict(original_sequence=x,
-                         placeholder_duration=placeholder_duration,
-                         decoding_start=data_processor.num_events_before +
-                         data_processor.num_events_after + 2)
+    metadata_dict = dict(
+        original_sequence=x,
+        placeholder_duration=placeholder_duration,
+        decoding_start=data_processor.num_events_before
+        + data_processor.num_events_after
+        + 2,
+    )
 
-    return x, metadata_dict, unused_before, before, after, unused_after, selected_region, region_after_start_time
+    return (
+        x,
+        metadata_dict,
+        unused_before,
+        before,
+        after,
+        unused_after,
+        selected_region,
+        region_after_start_time,
+    )
 
 
 if __name__ == "__main__":

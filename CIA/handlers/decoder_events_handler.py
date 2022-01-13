@@ -94,7 +94,7 @@ class DecoderEventsHandler(Handler):
 
         return means
 
-    def inpaint_non_optimized(
+    def inpaint_non_optimized_superconditioning(
         self,
         x,
         metadata_dict,
@@ -150,6 +150,8 @@ class DecoderEventsHandler(Handler):
             num_events = min(
                 decoding_start_event + num_max_generated_events, num_events
             )
+
+        done = False
 
         with torch.no_grad():
             # event_index corresponds to the position of the token BEING generated
@@ -277,10 +279,20 @@ class DecoderEventsHandler(Handler):
                                     )
 
                     if all(v is not None for v in decoding_end):
+                        done = True
                         break
                 if all(v is not None for v in decoding_end):
                     break
-        done = True
+
+            if any(e is None for e in decoding_end):
+                done = False
+                decoding_end = [num_events if e is None else e for e in decoding_end]
+            else:
+                done = True
+
+        print(
+            f"num events gen: {num_events} - done: {done} - decoding end: {decoding_end}"
+        )
 
         num_event_generated = [e - decoding_start_event for e in decoding_end]
         generated_region = [
@@ -295,6 +307,145 @@ class DecoderEventsHandler(Handler):
             num_event_generated,
             done,
         )
+
+    def inpaint_non_optimized(
+        self,
+        x,
+        metadata_dict,
+        temperature=1.0,
+        top_p=1.0,
+        top_k=0,
+        num_max_generated_events=None,
+        regenerate_first_ts=False,
+    ):
+        # TODO add arguments to preprocess
+        print(f'Placeholder duration: {metadata_dict["placeholder_duration"]}')
+        self.eval()
+        batch_size, num_events, _ = x.size()
+
+        # TODO only works with batch_size=1 at present
+        assert x.size(0) == 1
+        index2value = self.dataloader_generator.dataset.index2value
+        decoding_end = None
+        placeholder_duration = metadata_dict["placeholder_duration"].item()
+        generated_duration = 0.0
+        decoding_start_event = metadata_dict["decoding_start"]
+
+        # just to be sure we erase the tokens to be generated
+        if not regenerate_first_ts:
+            x[:, decoding_start_event:] = 0
+        else:
+            # Warning, special case when we need to keep the first note!
+            x[:, decoding_start_event + 1 :] = 0
+            x[:, decoding_start_event, -1] = 0
+
+        if num_max_generated_events is not None:
+            num_events = min(
+                decoding_start_event + num_max_generated_events, num_events
+            )
+
+        with torch.no_grad():
+            # event_index corresponds to the position of the token BEING generated
+            for event_index in range(decoding_start_event, num_events):
+                metadata_dict["original_sequence"] = x
+
+                # output is used to generate auto-regressively all
+                # channels of an event
+                output, target_embedded, h_pe = self.compute_event_state(
+                    target=x,
+                    metadata_dict=metadata_dict,
+                )
+
+                # extract correct event_step
+                output = output[:, event_index]
+
+                for channel_index in range(self.num_channels_target):
+                    # skip updates if we need to only recompute the FIRST TIMESHIFT
+                    if (
+                        event_index == decoding_start_event
+                        and regenerate_first_ts
+                        and channel_index < 3
+                    ):
+                        continue
+
+                    # target_embedded must be recomputed!
+                    # TODO could be optimized
+                    target_embedded = self.data_processor.embed(x)[:, event_index]
+                    weights = self.event_state_to_weight_step(
+                        output, target_embedded, channel_index
+                    )
+                    logits = weights / temperature
+
+                    # Filter logits
+                    filtered_logits = []
+                    for logit in logits:
+
+                        filter_logit = top_k_top_p_filtering(
+                            logit, top_k=top_k, top_p=top_p
+                        )
+                        filtered_logits.append(filter_logit)
+                    filtered_logits = torch.stack(filtered_logits, dim=0)
+                    # Sample from the filtered distribution
+                    p = to_numpy(torch.softmax(filtered_logits, dim=-1))
+
+                    # update generated sequence
+                    for batch_index in range(batch_size):
+                        if event_index >= decoding_start_event:
+                            new_pitch_index = np.random.choice(
+                                np.arange(
+                                    self.num_tokens_per_channel_target[channel_index]
+                                ),
+                                p=p[batch_index],
+                            )
+                            x[batch_index, event_index, channel_index] = int(
+                                new_pitch_index
+                            )
+
+                            end_symbol_index = (
+                                self.dataloader_generator.dataset.value2index[
+                                    self.dataloader_generator.features[channel_index]
+                                ]["END"]
+                            )
+                            if end_symbol_index == int(new_pitch_index):
+                                decoding_end = event_index
+                                print("End of decoding due to END symbol generation")
+
+                            # Additional check:
+                            # if the generated duration is > than the
+                            # placeholder_duration
+                            # TODO hardcoded channel index for timeshifts
+                            if channel_index == 3:
+                                generated_duration += index2value["time_shift"][
+                                    new_pitch_index
+                                ]
+                                if generated_duration > placeholder_duration:
+                                    decoding_end = event_index + 1
+                                    print(
+                                        "End of decoding due to the generation > than placeholder duration"
+                                    )
+                                    print(
+                                        f"Excess: {generated_duration - placeholder_duration}"
+                                    )
+
+                    if decoding_end is not None:
+                        break
+                if decoding_end is not None:
+                    break
+            if decoding_end is None:
+                done = False
+                decoding_end = num_events
+            else:
+                done = True
+
+        num_event_generated = decoding_end - decoding_start_event
+
+        print(
+            f"num events gen: {num_events} - done: {done} - decoding end: {decoding_end}"
+        )
+
+        generated_region = x[:, decoding_start_event:decoding_end]
+        # TODO return everything on GPU
+        return x.cpu(), generated_region, decoding_end, num_event_generated, done
 
     def inpaint(self, x, metadata_dict, temperature=1.0, top_p=1.0, top_k=0):
         # TODO add arguments to preprocess
@@ -375,85 +526,3 @@ class DecoderEventsHandler(Handler):
 
         num_event_generated = decoding_end - decoding_start_event
         return x.cpu(), decoding_end, num_event_generated, done
-
-    # def inpaint(self, x, metadata_dict, temperature=1., top_p=1., top_k=0):
-    #     # TODO add arguments to preprocess
-    #     print(f'Placeholder duration: {metadata_dict["placeholder_duration"]}')
-    #     self.eval()
-    #     batch_size, num_events, _ = x.size()
-
-    #     # TODO only works with batch_size=1 at present
-    #     assert x.size(0) == 1
-
-    #     decoding_end = None
-    #     decoding_start_event = metadata_dict['decoding_start']
-    #     decoding_start_index = decoding_start_event * self.num_channels_target
-    #     x[:, decoding_start_event:] = 0  # ensure we don't cheat!
-
-    #     # get hidden states
-    #     metadata_dict['original_sequence'] = x
-    #     out = self.model.module.infer_hidden_states(x, metadata_dict,
-    #                                                 decoding_start_index)
-    #     states = dict(Zs=out['Zs'],
-    #                   Ss=out['Ss'],
-    #                   Zs_rot=out['Zs_rot'],
-    #                   Ss_rot=out['Ss_rot'])
-
-    #     # TODO(Leo): MUST ADD original_token to metadata_dict, otherwise, positional encodings are not computed properly
-    #     with torch.no_grad():
-    #         # i corresponds to the position of the token BEING generated
-    #         for event_index in range(decoding_start_event, num_events):
-    #             for channel_index in range(self.num_channels_target):
-
-    #                 metadata_dict['original_sequence'] = x
-
-    #                 decoding_index = event_index * self.num_channels_target + channel_index
-    #                 if decoding_index == decoding_start_index:
-    #                     # no need to recompute this one already inferred with states
-    #                     weights = out['weights']
-    #                 else:
-    #                     forward_pass = self.recurrent_step(
-    #                         target=x,
-    #                         metadata_dict=metadata_dict,
-    #                         states=states,
-    #                         decoding_index=decoding_index)
-    #                     weights = forward_pass['weights']
-
-    #                 logits = weights / temperature
-
-    #                 filtered_logits = []
-    #                 for logit in logits:
-    #                     filter_logit = top_k_top_p_filtering(logit,
-    #                                                          top_k=top_k,
-    #                                                          top_p=top_p)
-    #                     filtered_logits.append(filter_logit)
-    #                 filtered_logits = torch.stack(filtered_logits, dim=0)
-    #                 # Sample from the filtered distribution
-    #                 p = to_numpy(torch.softmax(filtered_logits, dim=-1))
-
-    #                 # update generated sequence
-    #                 for batch_index in range(batch_size):
-    #                     if event_index >= decoding_start_event:
-    #                         new_pitch_index = np.random.choice(
-    #                             np.arange(self.num_tokens_per_channel_target[
-    #                                 channel_index]),
-    #                             p=p[batch_index])
-    #                         x[batch_index, event_index,
-    #                           channel_index] = int(new_pitch_index)
-
-    #                         end_symbol_index = self.dataloader_generator.dataset.value2index[
-    #                             self.dataloader_generator.
-    #                             features[channel_index]]['END']
-    #                         if end_symbol_index == int(new_pitch_index):
-    #                             decoding_end = event_index
-
-    #             if decoding_end is not None:
-    #                 break
-    #     if decoding_end is None:
-    #         done = False
-    #         decoding_end = num_events
-    #     else:
-    #         done = True
-
-    #     num_event_generated = decoding_end - decoding_start_event
-    #     return x.cpu(), decoding_end, num_event_generated, done
