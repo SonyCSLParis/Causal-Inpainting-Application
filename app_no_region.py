@@ -1,25 +1,14 @@
 import pickle as pkl
 import numpy as np
-from CIA.data_processors.data_processor import DataProcessor
 import json
 from flask import Flask
 from flask import request
-from flask.helpers import make_response
-from flask.json import JSONDecoder, jsonify
-from torch.utils import data
+from flask.json import jsonify
 from CIA.utils import cuda_variable, get_free_port
 from flask_cors import CORS
-from CIA.handlers import DecoderPrefixHandler
-
-app = Flask(__name__)
-CORS(app)
-"""
-@author: Gaetan Hadjeres
-"""
 from CIA.positional_embeddings import PositionalEmbedding
 import importlib
 import os
-import shutil
 from datetime import datetime
 
 import click
@@ -37,6 +26,12 @@ from CIA.getters import (
     get_positional_embedding,
 )
 
+
+app = Flask(__name__)
+CORS(app)
+"""
+@author: Gaetan Hadjeres
+"""
 DEBUG = False
 
 
@@ -170,15 +165,15 @@ def invocations():
         print(d)
 
     # Save or load random seed
-    np_rand_state = np.random.get_state()
-    now = datetime.today().strftime("%Y-%m-%d-%H:%M:%S")
-    with open(f"random_states/{now}.pickle", "wb") as handle:
-        pkl.dump(np_rand_state, handle)
+    # np_rand_state = np.random.get_state()
+    # now = datetime.today().strftime("%Y-%m-%d-%H:%M:%S")
+    # with open(f"random_states/{now}.pickle", "wb") as handle:
+    #     pkl.dump(np_rand_state, handle)
 
-    # name = ""
-    # with open(f"random_srtates/{name}.pickle", "rb") as handle:
-    #     np_rand_state = pkl.load(handle)
-    # np.random.set_state(np_rand_state)
+    name = "save_random_state"
+    with open(f"random_states/{name}.pickle", "rb") as handle:
+        np_rand_state = pkl.load(handle)
+    np.random.set_state(np_rand_state)
 
     notes = d["notes"]
     top_p = float(d["top_p"])
@@ -262,12 +257,15 @@ def invocations():
     )
 
     # ableton_notes is useful ONLY when done!
-    # print("---all_notes_up_so_far")
+    print("---all_notes_up_so_far")
     ableton_notes, track_duration, _ = tensor_to_ableton(
         new_x, start_time=clip_start, beats_per_second=beats_per_second, rescale=False
     )
 
-    # print("--- New Region")
+    ################################################################################
+    ################################################################################
+    ################################################################################
+    print("--- New Region")
     ableton_notes_region, _, _ = tensor_to_ableton(
         generated_region[0].detach().cpu(),
         start_time=selected_region["start"],
@@ -277,10 +275,13 @@ def invocations():
         # rescale=done)
         rescale=False,
     )
+    ################################################################################
+    ################################################################################
+    ################################################################################
 
     after_region = torch.cat([after[0], unused_after[0]], dim=0).detach().cpu()
 
-    # print("--- New After")
+    print("--- New After")
     ableton_notes_after_region, _, _ = tensor_to_ableton(
         after_region,
         start_time=region_after_start_time,
@@ -295,13 +296,19 @@ def invocations():
         .cpu()
     )
 
-    # print("--- New before")
-    ableton_notes_new_before, _, time_next_note_before = tensor_to_ableton(
+    ################################################################################
+    ################################################################################
+    ################################################################################
+    print("--- New before")
+    (ableton_notes_new_before, _, time_next_note_before,) = tensor_to_ableton(
         new_before,
         start_time=clip_start,
         beats_per_second=beats_per_second,
         rescale=False,
     )
+    ################################################################################
+    ################################################################################
+    ################################################################################
 
     ableton_notes_region = shorten_durations(
         ableton_notes_region, ableton_notes_after_region
@@ -311,8 +318,8 @@ def invocations():
     # Next note starts at new_before_duration
     selected_region["start"] = time_next_note_before
 
-    # print(f'albeton notes: {ableton_notes}')
-    # print(f'region start: {ableton_notes_region}')
+    print(f"albeton notes: {ableton_notes}")
+    print(f"region start: {ableton_notes_region}")
     d = {
         "id": d["id"],
         "notes": ableton_notes,
@@ -360,8 +367,8 @@ def shorten_durations(generated_notes, notes_after):
         max_end_time = max(max_end_time, note["time"] + note["duration"])
         d[note["pitch"]] = k
 
-    # print(f"MAX END TIME: {max_end_time}")
-    # print("SHORTENING")
+    print(f"MAX END TIME: {max_end_time}")
+    print("SHORTENING")
     for k, note in enumerate(notes_after):
         print(f"time: {note['time']}")
         time = note["time"]
@@ -428,7 +435,8 @@ def preprocess_input(x, event_start, event_end):
     masked_positions[:, event_start - offset : event_end - offset] = 1
 
     # the last time shift should be known:
-    # TODO check this condition : should be done in conjunction with setting the correct duration of the inpainted region
+    # TODO check this condition : should be done in conjunction with setting
+    # the correct duration of the inpainted region
     # if event_end < total_length:
     #     masked_positions[:, event_end - offset - 1, 3] = 0
 
@@ -854,8 +862,8 @@ def tensor_to_ableton(
         notes[-1]["duration"].item() * rescaling_factor * beats_per_second
     )
     time_next_note = actual_duration * beats_per_second + start_time
-    # print(f"DURATION: {actual_duration}")
-    # print(f"LAST timeshift out {timeshifts[-1]}")
+    print(f"DURATION: {actual_duration}")
+    print(f"LAST timeshift out {timeshifts[-1]}")
     return notes, track_duration, time_next_note
 
 
@@ -937,10 +945,11 @@ def json_to_tensor(
     # time in beats
     region_after_start_time = selected_region["end"]
     last_time_shift_before = (
-        selected_region["start"] - d_before["time"][-1].item()
-    ) * seconds_per_beat
+        max((selected_region["start"] - d_before["time"][-1].item()), 0)
+        * seconds_per_beat
+    )
 
-    # print(f"LAST TIMESHIFT IN {last_time_shift_before}")
+    print(f"LAST TIMESHIFT IN {last_time_shift_before}")
 
     # multiply by tempo
     d_before["time"] = d_before["time"] * seconds_per_beat
