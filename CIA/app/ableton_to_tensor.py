@@ -279,19 +279,6 @@ def ableton_to_tensor(
             dim=1,
         ).long()
 
-    # if "before" was padded
-    if event_start < data_processor.num_events_before:
-        # (then event_start is the size of "before")
-        before = before[:, -event_start:]
-
-        # slicing does not work in this case
-        if event_start == 0:
-            before = before[:, :0]
-
-    # if "after" was padded:
-    if num_notes_after < data_processor.num_events_after:
-        after = after[:, :num_notes_after]
-
     # update clip start if necessary
     if clip_start > start_time:
         clip_start = start_time
