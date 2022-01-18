@@ -67,7 +67,10 @@ def tensor_to_ableton(
 
     new_before_notes = notes_before + notes_middle
     generated_notes = notes_middle
-    track_duration = notes_after[-1]["time"] + notes_after[-1]["duration"]
+    if len(notes_after) > 0:
+        track_duration = notes_after[-1]["time"] + notes_after[-1]["duration"]
+    else:
+        track_duration = new_before_notes[-1]["time"] + new_before_notes[-1]["duration"]
 
     return (
         new_before_notes,
