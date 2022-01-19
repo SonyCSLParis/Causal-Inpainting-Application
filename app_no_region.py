@@ -183,6 +183,7 @@ def invocations():
 
     notes = d["notes"]
     top_p = float(d["top_p"])
+    superconditioning = float(d["superconditioning"])
     selected_region = d["selected_region"]
     if "clip_start" not in d:
         clip_start = selected_region["start"]
@@ -234,13 +235,24 @@ def invocations():
         raise NotImplementedError
 
     # network forward pass
-    # (
-    #     _,
-    #     generated_region,
-    #     _,
-    #     _,
-    #     done,
-    # ) = handler.inpaint_non_optimized_superconditioning(
+    S = None if superconditioning == 1.0 else [superconditioning]
+    (
+        _,
+        generated_region,
+        _,
+        _,
+        done,
+    ) = handler.inpaint_non_optimized_superconditioning(
+        x=x,
+        metadata_dict=metadata_dict,
+        temperature=1.0,
+        top_p=top_p,
+        top_k=0,
+        num_max_generated_events=num_max_generated_events,
+        regenerate_first_ts=regenerate_first_ts,
+        null_superconditioning=S,
+    )
+    # (_, generated_region, _, _, done,) = handler.inpaint_non_optimized(
     #     x=x,
     #     metadata_dict=metadata_dict,
     #     temperature=1.0,
@@ -249,15 +261,6 @@ def invocations():
     #     num_max_generated_events=num_max_generated_events,
     #     regenerate_first_ts=regenerate_first_ts,
     # )
-    (_, generated_region, _, _, done,) = handler.inpaint_non_optimized(
-        x=x,
-        metadata_dict=metadata_dict,
-        temperature=1.0,
-        top_p=top_p,
-        top_k=0,
-        num_max_generated_events=num_max_generated_events,
-        regenerate_first_ts=regenerate_first_ts,
-    )
 
     # convert to ableton format
     (
@@ -288,6 +291,7 @@ def invocations():
         "track_duration": track_duration,
         "done": done,
         "top_p": top_p,
+        "superconditioning": superconditioning,
         "selected_region": selected_region,
         "notes_before_next_region": new_before_notes,
         "notes_region": ableton_notes_region,
