@@ -5,6 +5,7 @@
 
 venv/
 models/
+examples/
 .vscode/
 *.pyc
 workspace.code-workspace
