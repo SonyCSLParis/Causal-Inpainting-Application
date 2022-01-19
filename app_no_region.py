@@ -174,10 +174,10 @@ def invocations():
     # with open(f"random_states/{now}.pickle", "wb") as handle:
     #     pkl.dump(np_rand_state, handle)
 
-    name = "save_random_state"
-    with open(f"random_states/{name}.pickle", "rb") as handle:
-        np_rand_state = pkl.load(handle)
-    np.random.set_state(np_rand_state)
+    # name = "save_random_state"
+    # with open(f"random_states/{name}.pickle", "rb") as handle:
+    #     np_rand_state = pkl.load(handle)
+    # np.random.set_state(np_rand_state)
     ############################################################
     ############################################################
 
@@ -234,13 +234,22 @@ def invocations():
         raise NotImplementedError
 
     # network forward pass
-    (
-        _,
-        generated_region,
-        _,
-        _,
-        done,
-    ) = handler.inpaint_non_optimized_superconditioning(
+    # (
+    #     _,
+    #     generated_region,
+    #     _,
+    #     _,
+    #     done,
+    # ) = handler.inpaint_non_optimized_superconditioning(
+    #     x=x,
+    #     metadata_dict=metadata_dict,
+    #     temperature=1.0,
+    #     top_p=top_p,
+    #     top_k=0,
+    #     num_max_generated_events=num_max_generated_events,
+    #     regenerate_first_ts=regenerate_first_ts,
+    # )
+    (_, generated_region, _, _, done,) = handler.inpaint_non_optimized(
         x=x,
         metadata_dict=metadata_dict,
         temperature=1.0,
