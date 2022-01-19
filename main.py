@@ -159,9 +159,12 @@ def main(rank, train, load, overfitted, config, num_workers, world_size, model_d
     if hasattr(decoder_handler.model.module.transformer, "fix_projection_matrices_"):
         decoder_handler.model.module.transformer.fix_projection_matrices_()
 
-    # exemple = dict(path='/home/leo/Data/databases/Piano/ecomp_piano_dataset/Abdelmola01.MID', num_events_middle=500,
-    #                start=0)
-    exemple = None
+    exemple = dict(
+        path="/home/leo/Code/CIA/examples/piano_sofiane.mid",
+        num_events_middle=40,
+        start=0,
+    )
+    # exemple = None
 
     # null_superconditioning
     # null_superconditioning = None
@@ -212,18 +215,14 @@ def main(rank, train, load, overfitted, config, num_workers, world_size, model_d
         num_event_generated,
         done,
     ) = decoder_handler.inpaint_non_optimized(
-        x=x.clone(),
-        metadata_dict=metadata_dict,
-        temperature=1.0,
-        top_p=0.95,
-        top_k=0,
-        null_superconditioning=null_superconditioning,
+        x=x.clone(), metadata_dict=metadata_dict, temperature=1.0, top_p=0.95, top_k=0
     )
     end_time = time.time()
     ############################################################
     x_inpainted = data_processor.postprocess(x_gen, decoding_end, metadata_dict)
-
     # Timing infos
+    if type(num_event_generated) == int:
+        num_event_generated = [num_event_generated] * len(x)
     print(f"Num events_generated: {[e for e in num_event_generated]}")
     print(f"Time generation: {(end_time - start_time) / len(num_event_generated)}")
     average_time_list = [(end_time - start_time) / e for e in num_event_generated]

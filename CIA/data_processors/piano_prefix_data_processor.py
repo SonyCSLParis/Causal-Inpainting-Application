@@ -400,6 +400,9 @@ class PianoPrefixDataProcessor(DataProcessor):
         decoding_start = metadata_dict["decoding_start"]
         # put all pieces in order:
         x_out = []
+        # TODO: change this
+        if type(decoding_end) == int:
+            decoding_end = [decoding_end] * len(x)
         for batch_ind in range(len(x)):
             x_out.append(
                 torch.cat(
