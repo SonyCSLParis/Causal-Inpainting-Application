@@ -236,31 +236,33 @@ def invocations():
 
     # network forward pass
     S = None if superconditioning == 1.0 else [superconditioning]
-    (
-        _,
-        generated_region,
-        _,
-        _,
-        done,
-    ) = handler.inpaint_non_optimized_superconditioning(
-        x=x,
-        metadata_dict=metadata_dict,
-        temperature=1.0,
-        top_p=top_p,
-        top_k=0,
-        num_max_generated_events=num_max_generated_events,
-        regenerate_first_ts=regenerate_first_ts,
-        null_superconditioning=S,
-    )
-    # (_, generated_region, _, _, done,) = handler.inpaint_non_optimized(
-    #     x=x,
-    #     metadata_dict=metadata_dict,
-    #     temperature=1.0,
-    #     top_p=top_p,
-    #     top_k=0,
-    #     num_max_generated_events=num_max_generated_events,
-    #     regenerate_first_ts=regenerate_first_ts,
-    # )
+    if S is None:
+        (_, generated_region, _, _, done,) = handler.inpaint_non_optimized(
+            x=x,
+            metadata_dict=metadata_dict,
+            temperature=1.0,
+            top_p=top_p,
+            top_k=0,
+            num_max_generated_events=num_max_generated_events,
+            regenerate_first_ts=regenerate_first_ts,
+        )
+    else:
+        (
+            _,
+            generated_region,
+            _,
+            _,
+            done,
+        ) = handler.inpaint_non_optimized_superconditioning(
+            x=x,
+            metadata_dict=metadata_dict,
+            temperature=1.0,
+            top_p=top_p,
+            top_k=0,
+            num_max_generated_events=num_max_generated_events,
+            regenerate_first_ts=regenerate_first_ts,
+            null_superconditioning=S,
+        )
 
     # convert to ableton format
     (

@@ -22,6 +22,8 @@ class PianoDataloaderGenerator(DataloaderGenerator):
             velocity_shift=20,
             transformations=transformations,
             different_time_table_ts_duration=not legacy,
+            # TODO(leo): this a bit too hardcoded
+            # Does not cover cases like before = PAD PAD PAD ... PAD START
             offset_beginning=-63,
             offset_end=-64,
         )

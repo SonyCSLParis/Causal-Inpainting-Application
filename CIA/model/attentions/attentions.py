@@ -22,17 +22,17 @@ class DepthwiseConv(nn.Module):
                                             kernel_size=3,
                                             padding=2,
                                             groups=dim)
-        
+
     def forward(self, x):
         batch_size, length, features = x.size()
         x = x.transpose(1,2)
-        
+
         x = self.conv(x)
         x = x.transpose(1,2)
         return x[:, :length]
-        
 
-        
+
+
 class Attention_(nn.Module):
     def __init__(
         self,
