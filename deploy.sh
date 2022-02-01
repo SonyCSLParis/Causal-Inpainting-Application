@@ -20,3 +20,4 @@ RELEASE_NAME="1.0-alpha"
 
 echo 'Building Docker'
 docker build -t piano_inpainting_app:v3 --build-arg GITHUB_TOKEN="$(cat /home/gaetan/.secrets/github_token)" --build-arg SSH_PRIVATE_KEY="$(cat /home/gaetan/.ssh/id_rsa)" --build-arg AWS_BUCKET_NAME="${MODEL_NAME}" --build-arg RELEASE_NAME="${RELEASE_NAME}" .  
+# add --no-cache flag if necessary
