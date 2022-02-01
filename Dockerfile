@@ -1,6 +1,8 @@
+# Author: Gaëtan Hadjeres
+
 # ==== Build this image with the following command
-# PIAv2
-# docker build -t piano_inpainting_app:v2 --build-arg GITHUB_TOKEN="$(cat /home/gaetan/.secrets/github_token)" --build-arg SSH_PRIVATE_KEY="$(cat /home/gaetan/.ssh/id_rsa)" --build-arg AWS_BUCKET_NAME="piano_event_performer_2021-09-03_18:40:31_finetune" .
+# CIA superconditioning: aka. piano_inpainting_app:v3
+# docker build -t piano_inpainting_app:v3 --build-arg GITHUB_TOKEN="$(cat /home/gaetan/.secrets/github_token)" --build-arg SSH_PRIVATE_KEY="$(cat /home/gaetan/.ssh/id_rsa)" --build-arg AWS_BUCKET_NAME="piano_event_performer_2021-09-03_18:40:31_finetune" .
 
 # PIAv3
 # docker build -t piano_inpainting_app:v3 --build-arg GITHUB_TOKEN="$(cat /home/gaetan/.secrets/github_token)" --build-arg SSH_PRIVATE_KEY="$(cat /home/gaetan/.ssh/id_rsa)" --build-arg AWS_BUCKET_NAME="piano_event_performer_2021-10-01_16:03:06_TOWER_32j" .  
@@ -22,6 +24,7 @@ RUN apt-get update -y && apt-get install -y git && apt-get install -y curl
 
 ARG SSH_PRIVATE_KEY
 ARG GITHUB_TOKEN
+ARG RELEASE_NAME
 
 RUN mkdir /root/.secrets/
 
@@ -36,13 +39,10 @@ RUN git clone git@github.com:SonyCSLParis/DatasetManager.git /workspace/DatasetM
     && git clone git@github.com:Ghadjeres/fast-transformers.git /workspace/fast-transformers \
     && git clone git@github.com:SonyCSLParis/jazz-music21.git /workspace/jazz-music21
 
-# PIAv2
-# RUN curl -vJLO -H "Authorization: token ${GITHUB_TOKEN}" "https://github.com/SonyCSLParis/CIA/archive/refs/tags/v0.2.tar.gz"
-# RUN tar -xvzf CIA-0.2.tar.gz && mv CIA-0.2/ /workspace/CIA
-
 # PIAv3
-RUN curl -vJLO -H "Authorization: token ${GITHUB_TOKEN}" "https://github.com/SonyCSLParis/CIA/archive/refs/tags/v0.3.tar.gz"
-RUN tar -xvzf CIA-0.3.tar.gz && mv CIA-0.3/ /workspace/CIA
+RUN ls -l
+RUN curl -vJLO -H "Authorization: token ${GITHUB_TOKEN}" "https://github.com/SonyCSLParis/CIA/archive/refs/tags/v${RELEASE_NAME}.tar.gz"
+RUN tar -xvzf "CIA-${RELEASE_NAME}.tar.gz" && mv "CIA-${RELEASE_NAME}/" /workspace/CIA
 
 FROM nvidia/cuda:11.1-devel-ubuntu20.04
 
@@ -106,15 +106,16 @@ RUN pip install pytorch-fast-transformers
 EXPOSE 8080
 ENV CUDA_VISIBLE_DEVICES=0
 
-# PIAv2
-# ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "cia2", \
-#             "python", "app.py", \
-#             "--config=models/piano_event_performer_2021-09-03_18:40:31_finetune/config.py", \            
-#             "-o", "--num_workers=0"]
-
-
 # PIAv3: uses app_no_region
-ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "cia2", \
-            "python", "app_no_region.py", \       
-            "--config=models/piano_event_performer_2021-10-01_16:03:06_TOWER_32j/config.py", \
-            "-o", "--num_workers=0"]
+# ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "cia2", \
+#             "python", "app_no_region.py", \       
+#             "--config=models/${AWS_BUCKET_NAME}}/config.py", \
+#             # "-o", \  # not overfitted!
+#             "--num_workers=0"]
+
+# difference between ARG and ENV
+ENV AWS_BUCKET_NAME=${AWS_BUCKET_NAME}
+# In shell form
+ENTRYPOINT conda run --no-capture-output -n cia2 python app_no_region.py \
+            --config=models/$AWS_BUCKET_NAME/config.py \
+            --num_workers=0
