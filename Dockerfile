@@ -35,7 +35,9 @@ RUN touch /root/.ssh/known_hosts
 RUN ssh-keyscan github.com >> /root/.ssh/known_hosts
 
 # clone repos in the intermediate image
-RUN git clone git@github.com:SonyCSLParis/DatasetManager.git /workspace/DatasetManager \
+# We must use "clean" branch from DatasetManager 
+# Merci Léo
+RUN git clone --branch clean git@github.com:SonyCSLParis/DatasetManager.git /workspace/DatasetManager \
     && git clone git@github.com:Ghadjeres/fast-transformers.git /workspace/fast-transformers \
     && git clone git@github.com:SonyCSLParis/jazz-music21.git /workspace/jazz-music21
 
@@ -88,6 +90,7 @@ RUN mkdir models && mkdir "models/${AWS_BUCKET_NAME}"
 
 RUN wget "http://ghadjeres.s3.amazonaws.com/${AWS_BUCKET_NAME}/config.py" -P "models/${AWS_BUCKET_NAME}"
 RUN wget "http://ghadjeres.s3.amazonaws.com/${AWS_BUCKET_NAME}/overfitted/model" -P "models/${AWS_BUCKET_NAME}/overfitted"
+RUN wget "http://ghadjeres.s3.amazonaws.com/${AWS_BUCKET_NAME}/early_stopped/model" -P "models/${AWS_BUCKET_NAME}/early_stopped"
 
 # dirty fixes because it's useless to upload the dataset
 RUN mkdir -p /root/Data/dataset_cache/PianoMidi \
@@ -106,16 +109,11 @@ RUN pip install pytorch-fast-transformers
 EXPOSE 8080
 ENV CUDA_VISIBLE_DEVICES=0
 
-# PIAv3: uses app_no_region
-# ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "cia2", \
-#             "python", "app_no_region.py", \       
-#             "--config=models/${AWS_BUCKET_NAME}}/config.py", \
-#             # "-o", \  # not overfitted!
-#             "--num_workers=0"]
-
 # difference between ARG and ENV
-ENV AWS_BUCKET_NAME=${AWS_BUCKET_NAME}
-# In shell form
-ENTRYPOINT conda run --no-capture-output -n cia2 python app_no_region.py \
-            --config=models/$AWS_BUCKET_NAME/config.py \
-            --num_workers=0
+ENV AWS_BUCKET_NAME "${AWS_BUCKET_NAME}"
+# PIAv3: uses app_no_region
+ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "cia2", \
+            "python", "app_no_region.py", \       
+            "--config=models/${AWS_BUCKET_NAME}/config.py", \
+            # "-o", \  # not overfitted!
+            "--num_workers=0"]
